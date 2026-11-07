@@ -1,0 +1,31 @@
+{
+  "name": "@omnibrain/web",
+  "version": "0.0.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "bunx vite",
+    "build": "bunx vite build"
+  },
+  "dependencies": {
+    "@fontsource-variable/geist": "^5.3.0",
+    "@fontsource-variable/geist-mono": "^5.3.0",
+    "@omnibrain/connectors": "workspace:*",
+    "@omnibrain/core": "workspace:*",
+    "@omnibrain/search": "workspace:*",
+    "@omnibrain/ui": "workspace:*",
+    "kirari": "^1.2.0",
+    "motion": "^14.10.1",
+    "notch-toast": "^0.2.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.4",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^6.2.1",
+    "tailwindcss": "^4.3.4",
+    "vite": "^8.3.6"
+  }
+}

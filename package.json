@@ -1,0 +1,33 @@
+{
+  "name": "omnibrain",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "bun scripts/dev.ts",
+    "dev:api": "bun --watch scripts/dev-api.ts",
+    "dev:web": "bun run --filter=@omnibrain/web dev",
+    "build": "bun run --filter=@omnibrain/web build",
+    "test": "bun test",
+    "typecheck": "bun scripts/typecheck.ts",
+    "lint": "oxlint --max-warnings=20",
+    "format": "bun fmt",
+    "format:check": "bun fmt --check",
+    "check": "bun format --check && bun typecheck && bun lint && bun test && bun run build",
+    "deploy": "bun alchemy deploy",
+    "destroy": "bun alchemy destroy"
+  },
+  "devDependencies": {
+    "@alchemy.run/cloudflare": "2.0.0-beta.85",
+    "@cloudflare/workers-types": "latest",
+    "@types/bun": "latest",
+    "alchemy": "2.0.0-beta.85",
+    "effect": "^4.1.2",
+    "oxlint": "^1.92.0",
+    "playwright-core": "^1.65.0",
+    "typescript": "^5.9.3"
+  }
+}

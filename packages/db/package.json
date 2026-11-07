@@ -1,0 +1,12 @@
+{
+  "name": "@omnibrain/db",
+  "version": "0.0.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./sqlite": "./src/sqlite.ts"
+  },
+  "dependencies": {
+    "@omnibrain/core": "workspace:*"
+  }
+}

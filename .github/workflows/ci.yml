@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - name: Install
+        run: bun install --frozen-lockfile
+      - name: Format check
+        run: bun format --check
+      - name: Typecheck all projects
+        run: bun typecheck
+      - name: Lint (oxlint)
+        run: bun lint
+      - name: Unit and API tests
+        run: bun test
+      - name: Build web
+        run: bun run build

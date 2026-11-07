@@ -1,0 +1,20 @@
+{
+  "name": "@omnibrain/api",
+  "version": "0.0.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "bun src/dev.ts"
+  },
+  "dependencies": {
+    "@hono/zod-validator": "^0.9.1",
+    "@omnibrain/ai": "workspace:*",
+    "@omnibrain/auth": "workspace:*",
+    "@omnibrain/connectors": "workspace:*",
+    "@omnibrain/core": "workspace:*",
+    "@omnibrain/db": "workspace:*",
+    "@omnibrain/search": "workspace:*",
+    "hono": "^4.13.16",
+    "zod": "^4.6.7"
+  }
+}
