@@ -1,3 +1,5 @@
+import type { ItemStatus } from "./nav";
+
 const BASE = ((import.meta.env.VITE_API_URL as string | undefined) ?? "").replace(/\/$/, "");
 
 export class ApiError extends Error {
@@ -56,6 +58,7 @@ export interface Item {
   captured_at: number;
   tags_text: string;
   embedding_state: "pending" | "ready" | "failed" | "skipped";
+  archived_at: number | null;
   deleted_at: number | null;
   created_at: number;
   updated_at: number;
@@ -201,7 +204,15 @@ export const api = {
   me: () => request<Me>("/auth/me"),
   logout: () => request<{ ok: boolean }>("/auth/logout", { method: "POST" }),
 
-  items: (params: { limit?: number; source?: string; kind?: string; cursor?: string } = {}) => {
+  items: (
+    params: {
+      limit?: number;
+      source?: string;
+      kind?: string;
+      cursor?: string;
+      status?: ItemStatus;
+    } = {},
+  ) => {
     const qs = new URLSearchParams();
     for (const [k, v] of Object.entries(params)) if (v !== undefined) qs.set(k, String(v));
     return request<{ items: Item[]; total: number; nextCursor: string | null }>(`/items?${qs}`);
@@ -217,6 +228,12 @@ export const api = {
     enrich?: boolean;
   }) => request<{ item: Item; created: boolean }>("/items", { method: "POST", body: input }),
   deleteItem: (id: string) => request<{ ok: boolean }>(`/items/${id}`, { method: "DELETE" }),
+  archiveItem: (id: string) => request<{ ok: boolean }>(`/items/${id}/archive`, { method: "POST" }),
+  unarchiveItem: (id: string) =>
+    request<{ ok: boolean }>(`/items/${id}/unarchive`, { method: "POST" }),
+  restoreItem: (id: string) => request<{ ok: boolean }>(`/items/${id}/restore`, { method: "POST" }),
+  purgeItem: (id: string) =>
+    request<{ ok: boolean }>(`/items/${id}/permanent`, { method: "DELETE" }),
   retryItem: (id: string) => request<{ ok: boolean }>(`/items/${id}/retry`, { method: "POST" }),
 
   search: (input: {

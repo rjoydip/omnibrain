@@ -42,6 +42,7 @@ export interface ItemRow {
   content_hash: string;
   tags_text: string;
   embedding_state: "pending" | "ready" | "failed" | "skipped";
+  archived_at: number | null;
   deleted_at: number | null;
   created_at: number;
   updated_at: number;

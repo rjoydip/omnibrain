@@ -7,15 +7,183 @@ import {
   MenuTrigger,
   Tooltip,
 } from "@omnibrain/ui";
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Atlas, type AtlasFilter } from "../components/Atlas";
 import { SourceGlyph } from "../components/SourceGlyph";
-import { CloseIcon, FilterIcon } from "../components/icons";
+import {
+  ArchiveIcon,
+  ArrowUpRightIcon,
+  CloseIcon,
+  EllipsisIcon,
+  FilterIcon,
+  GridIcon,
+  ListIcon,
+  RestoreIcon,
+  TrashIcon,
+} from "../components/icons";
 import type { Item } from "../lib/api";
 import { groupByDay, sourceMeta, timeLabel } from "../lib/format";
-import type { Theme } from "../lib/nav";
+import type { ItemLayout, ItemStatus, Theme } from "../lib/nav";
 
 const DAY = 86_400_000;
+
+function KnowledgeItem({
+  item,
+  layout,
+  status,
+  selected,
+  onSelect,
+  onArchive,
+  onUnarchive,
+  onTrash,
+  onRestore,
+  onPurge,
+}: {
+  item: Item;
+  layout: ItemLayout;
+  status: ItemStatus;
+  selected: boolean;
+  onSelect: (id: string) => void;
+  onArchive: (id: string) => void;
+  onUnarchive: (id: string) => void;
+  onTrash: (id: string) => void;
+  onRestore: (id: string) => void;
+  onPurge: (id: string) => void;
+}) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const meta = sourceMeta(item.source);
+  const tags = item.tags_text.split(" ").filter(Boolean).slice(0, 3);
+  const excerpt = item.summary ?? item.excerpt ?? "No text extracted yet.";
+
+  const menu = (
+    <Menu open={menuOpen} onOpenChange={setMenuOpen}>
+      <MenuTrigger asChild>
+        <button
+          type="button"
+          aria-label={`Actions for ${item.title}`}
+          className="grid size-6 shrink-0 place-items-center rounded-[6px] text-faint opacity-60 transition hover:bg-raised hover:text-text focus-visible:opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
+        >
+          <EllipsisIcon size={14} />
+        </button>
+      </MenuTrigger>
+      <MenuContent>
+        <MenuItem onSelect={() => onSelect(item.id)}>
+          <ArrowUpRightIcon size={12} className="text-accent" />
+          Open
+        </MenuItem>
+        {status === "trash" ? (
+          <>
+            <MenuItem onSelect={() => onRestore(item.id)}>
+              <RestoreIcon size={12} className="text-accent" />
+              Restore
+            </MenuItem>
+            <MenuItem onSelect={() => onPurge(item.id)} className="text-coral">
+              <TrashIcon size={12} />
+              Delete forever
+            </MenuItem>
+          </>
+        ) : (
+          <>
+            <MenuItem
+              onSelect={() => (status === "archived" ? onUnarchive(item.id) : onArchive(item.id))}
+            >
+              <ArchiveIcon size={12} className="text-accent" />
+              {status === "archived" ? "Unarchive" : "Archive"}
+            </MenuItem>
+            <MenuItem onSelect={() => onTrash(item.id)}>
+              <TrashIcon size={12} className="text-coral" />
+              Move to trash
+            </MenuItem>
+          </>
+        )}
+      </MenuContent>
+    </Menu>
+  );
+
+  const labels = (
+    <div className="mt-1 flex flex-wrap items-center gap-2">
+      <span className="font-mono text-[10px] text-faint">{meta.label}</span>
+      {tags.map((tag) => (
+        <span key={tag} className="font-mono text-[10px] text-faint">
+          #{tag}
+        </span>
+      ))}
+      {item.archived_at ? (
+        <span className="font-mono text-[9px] uppercase tracking-wider text-accent">archived</span>
+      ) : null}
+      {item.deleted_at ? (
+        <span className="font-mono text-[9px] uppercase tracking-wider text-coral">trash</span>
+      ) : null}
+    </div>
+  );
+
+  if (layout === "grid") {
+    return (
+      <div
+        data-selected={selected}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          setMenuOpen(true);
+        }}
+        className="group relative flex min-h-[150px] flex-col rounded-[var(--radius)] bg-panel p-3 data-[selected=true]:bg-raised"
+      >
+        <button
+          type="button"
+          onClick={() => onSelect(item.id)}
+          className="flex h-full w-full flex-col text-left"
+        >
+          <div className="flex items-center gap-2 pr-7">
+            <span className="source-tile text-accent">
+              <SourceGlyph id={item.source} size={12} />
+            </span>
+            <span className="font-mono text-[10px] text-faint">{meta.label}</span>
+            <span className="ml-auto font-mono text-[10px] text-faint">
+              {timeLabel(item.captured_at)}
+            </span>
+          </div>
+          <span className="mt-2 line-clamp-2 text-[13.5px] font-medium text-text">
+            {item.title}
+          </span>
+          <p className="mt-1 line-clamp-3 text-[11.5px] leading-relaxed text-muted">{excerpt}</p>
+          {labels}
+        </button>
+        <div className="absolute top-2 right-1.5">{menu}</div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      data-selected={selected}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        setMenuOpen(true);
+      }}
+      className="row group"
+    >
+      <button
+        type="button"
+        onClick={() => onSelect(item.id)}
+        className="flex min-w-0 flex-1 gap-2.5 text-left"
+      >
+        <div className="source-tile mt-0.5 text-accent">
+          <SourceGlyph id={item.source} size={12} />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-baseline justify-between gap-3">
+            <span className="truncate text-[13.5px] font-medium text-text">{item.title}</span>
+            <span className="shrink-0 font-mono text-[10px] text-faint">
+              {timeLabel(item.captured_at)}
+            </span>
+          </div>
+          <p className="mt-0.5 line-clamp-1 text-[11.5px] leading-relaxed text-muted">{excerpt}</p>
+          {labels}
+        </div>
+      </button>
+      {menu}
+    </div>
+  );
+}
 
 export function Knowledge({
   items,
@@ -26,6 +194,15 @@ export function Knowledge({
   onFilter,
   onOpenRecall,
   onNavigateImport,
+  onArchive,
+  onUnarchive,
+  onTrash,
+  onRestore,
+  onPurge,
+  status,
+  layout,
+  onLayout,
+  allSources,
   theme,
   hasMore,
   loadingMore,
@@ -41,6 +218,15 @@ export function Knowledge({
   onFilter: (filter: AtlasFilter | null) => void;
   onOpenRecall: () => void;
   onNavigateImport: () => void;
+  onArchive: (id: string) => void;
+  onUnarchive: (id: string) => void;
+  onTrash: (id: string) => void;
+  onRestore: (id: string) => void;
+  onPurge: (id: string) => void;
+  status: ItemStatus;
+  layout: ItemLayout;
+  onLayout: (layout: ItemLayout) => void;
+  allSources: string[];
   theme: Theme;
   hasMore: boolean;
   loadingMore: boolean;
@@ -66,32 +252,88 @@ export function Knowledge({
   }, [items, source, filter]);
 
   const groups = useMemo(() => groupByDay(filtered), [filtered]);
+  const loadMoreRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!hasMore) return;
+    const node = loadMoreRef.current;
+    if (!node) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting) && !loadingMore) onLoadMore();
+      },
+      { rootMargin: "240px" },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [hasMore, loadingMore, onLoadMore]);
 
   return (
     <div className="mx-auto w-full max-w-3xl space-y-4 p-3 md:p-4">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-faint">Memory map</p>
-          <h1 className="mt-1 text-xl font-semibold tracking-[-0.02em]">Knowledge</h1>
+          <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-faint">
+            {status === "active" ? "Memory map" : status === "archived" ? "Archive" : "Trash"}
+          </p>
+          <h1 className="mt-1 text-xl font-semibold tracking-[-0.02em]">
+            {status === "active" ? "Knowledge" : status === "archived" ? "Archived" : "Trash"}
+          </h1>
         </div>
-        <div className="flex items-center gap-4 font-mono text-[11px] text-faint">
-          <span>
-            <span className="text-text">{total.toLocaleString()}</span> items
-          </span>
-          <span>
-            <span className="text-text">{sources.length}</span> sources
-          </span>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-4 font-mono text-[11px] text-faint">
+            <span>
+              <span className="text-text">{total.toLocaleString()}</span>{" "}
+              {status === "active" ? "items" : status}
+            </span>
+            <span>
+              <span className="text-text">{sources.length}</span> sources
+            </span>
+          </div>
+          <div className="flex rounded-[var(--radius)] bg-raised p-0.5">
+            <Tooltip label="List view">
+              <button
+                type="button"
+                onClick={() => onLayout("list")}
+                aria-pressed={layout === "list"}
+                className={`grid size-6 place-items-center rounded-[5px] transition ${
+                  layout === "list" ? "bg-panel text-accent" : "text-muted hover:text-text"
+                }`}
+              >
+                <ListIcon size={13} />
+              </button>
+            </Tooltip>
+            <Tooltip label="Grid view">
+              <button
+                type="button"
+                onClick={() => onLayout("grid")}
+                aria-pressed={layout === "grid"}
+                className={`grid size-6 place-items-center rounded-[5px] transition ${
+                  layout === "grid" ? "bg-panel text-accent" : "text-muted hover:text-text"
+                }`}
+              >
+                <GridIcon size={13} />
+              </button>
+            </Tooltip>
+          </div>
         </div>
       </header>
 
-      <Atlas items={items} filter={filter} onFilter={onFilter} theme={theme} />
+      {(status === "active" || items.length > 0) && (
+        <Atlas
+          items={items}
+          sources={allSources}
+          filter={filter}
+          onFilter={onFilter}
+          theme={theme}
+        />
+      )}
 
-      <div className="flex flex-wrap items-center justify-between gap-2 pb-3">
-        <div className="flex flex-wrap items-center gap-1.5">
+      <div className="flex items-center justify-between gap-2 pb-3">
+        <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto pb-0.5">
           <button
             type="button"
             onClick={() => onSource("all")}
-            className={`rounded-full border px-2.5 py-1 text-[11px] transition ${
+            className={`shrink-0 rounded-full border px-2.5 py-1 text-[11px] transition ${
               source === "all"
                 ? "border-line-strong bg-raised text-text"
                 : "border-transparent text-muted hover:bg-raised/60"
@@ -106,7 +348,7 @@ export function Knowledge({
                 key={id}
                 type="button"
                 onClick={() => onSource(source === id ? "all" : id)}
-                className={`rounded-full border px-2.5 py-1 text-[11px] transition ${
+                className={`shrink-0 rounded-full border px-2.5 py-1 text-[11px] transition ${
                   source === id
                     ? "border-line-strong bg-raised text-text"
                     : "border-transparent text-muted hover:bg-raised/60"
@@ -122,94 +364,109 @@ export function Knowledge({
           })}
         </div>
 
-        {filter ? (
-          <button
-            type="button"
-            onClick={() => onFilter(null)}
-            className="flex items-center gap-1.5 rounded-full bg-raised px-2.5 py-1 font-mono text-[10px] text-accent transition hover:brightness-110"
-          >
-            <FilterIcon size={11} />
-            {filter.label}
-            <CloseIcon size={11} />
-          </button>
-        ) : (
-          <Menu>
-            <Tooltip label="Custom date filter">
-              <MenuTrigger asChild>
-                <button
-                  type="button"
-                  aria-label="Custom filter"
-                  className="flex items-center gap-1.5 rounded-full px-2.5 py-1 font-mono text-[10px] uppercase tracking-wider text-faint transition hover:bg-raised hover:text-text"
+        <div className="flex shrink-0 items-center gap-1.5">
+          {filter ? (
+            <button
+              type="button"
+              onClick={() => onFilter(null)}
+              className="flex items-center gap-1.5 rounded-full bg-raised px-2.5 py-1 font-mono text-[10px] text-accent transition hover:brightness-110"
+            >
+              <FilterIcon size={11} />
+              {filter.label}
+              <CloseIcon size={11} />
+            </button>
+          ) : (
+            <Menu>
+              <Tooltip label="Custom date filter">
+                <MenuTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label="Custom date filter"
+                    className="grid size-6 place-items-center rounded-full text-faint transition hover:bg-raised hover:text-text"
+                  >
+                    <FilterIcon size={13} />
+                  </button>
+                </MenuTrigger>
+              </Tooltip>
+              <MenuContent>
+                <MenuItem
+                  onSelect={() =>
+                    onFilter({
+                      start: Date.now() - 7 * DAY,
+                      end: Date.now(),
+                      label: "Last 7 days",
+                    })
+                  }
                 >
-                  <FilterIcon size={12} />
-                  {filtered.length} in stream
-                </button>
-              </MenuTrigger>
-            </Tooltip>
-            <MenuContent>
-              <MenuItem
-                onSelect={() =>
-                  onFilter({
-                    start: Date.now() - 7 * DAY,
-                    end: Date.now(),
-                    label: "Last 7 days",
-                  })
-                }
-              >
-                Last 7 days
-              </MenuItem>
-              <MenuItem
-                onSelect={() =>
-                  onFilter({
-                    start: Date.now() - 30 * DAY,
-                    end: Date.now(),
-                    label: "Last 30 days",
-                  })
-                }
-              >
-                Last 30 days
-              </MenuItem>
-              <MenuItem
-                onSelect={() =>
-                  onFilter({
-                    start: Date.now() - 90 * DAY,
-                    end: Date.now(),
-                    label: "Last 90 days",
-                  })
-                }
-              >
-                Last 90 days
-              </MenuItem>
-              <div aria-hidden="true" className="my-1 h-px bg-panel" />
-              <MenuItem
-                onSelect={() =>
-                  onFilter({
-                    start: new Date(new Date().getFullYear(), 0, 1).getTime(),
-                    end: Date.now() + DAY,
-                    label: `${new Date().getFullYear()} so far`,
-                  })
-                }
-              >
-                This year
-              </MenuItem>
-            </MenuContent>
-          </Menu>
-        )}
+                  Last 7 days
+                </MenuItem>
+                <MenuItem
+                  onSelect={() =>
+                    onFilter({
+                      start: Date.now() - 30 * DAY,
+                      end: Date.now(),
+                      label: "Last 30 days",
+                    })
+                  }
+                >
+                  Last 30 days
+                </MenuItem>
+                <MenuItem
+                  onSelect={() =>
+                    onFilter({
+                      start: Date.now() - 90 * DAY,
+                      end: Date.now(),
+                      label: "Last 90 days",
+                    })
+                  }
+                >
+                  Last 90 days
+                </MenuItem>
+                <div aria-hidden="true" className="my-1 h-px bg-panel" />
+                <MenuItem
+                  onSelect={() =>
+                    onFilter({
+                      start: new Date(new Date().getFullYear(), 0, 1).getTime(),
+                      end: Date.now() + DAY,
+                      label: `${new Date().getFullYear()} so far`,
+                    })
+                  }
+                >
+                  This year
+                </MenuItem>
+              </MenuContent>
+            </Menu>
+          )}
+        </div>
       </div>
 
       {items.length === 0 ? (
         <EmptyState
-          title="Nothing captured yet"
-          body="Save a link with ⌘K, or import the bookmarks already sitting in your browser."
+          title={
+            status === "trash"
+              ? "Trash is empty"
+              : status === "archived"
+                ? "Nothing archived"
+                : "Nothing captured yet"
+          }
+          body={
+            status === "trash"
+              ? "Items you move to trash land here until they are purged."
+              : status === "archived"
+                ? "Archive keeps older knowledge out of the active stream."
+                : "Save a link with ⌘K, or import the bookmarks already sitting in your browser."
+          }
           action={
-            <div className="flex items-center gap-2">
-              <Button type="button" variant="primary" size="sm" onClick={onOpenRecall}>
-                Capture a link
-              </Button>
-              <Button type="button" variant="ghost" size="sm" onClick={onNavigateImport}>
-                Import bookmarks
-              </Button>
-            </div>
+            status === "active" ? (
+              <div className="flex items-center gap-2">
+                <Button type="button" variant="primary" size="sm" onClick={onOpenRecall}>
+                  Capture a link
+                </Button>
+                <Button type="button" variant="ghost" size="sm" onClick={onNavigateImport}>
+                  Import bookmarks
+                </Button>
+              </div>
+            ) : undefined
           }
         />
       ) : filtered.length === 0 ? (
@@ -229,73 +486,63 @@ export function Knowledge({
           </Button>
         </div>
       ) : (
-        <div className="space-y-4 pb-14">
-          {groups.map((group) => (
-            <section key={group.label}>
-              <h2 className="sticky top-0 z-10 -mx-2 mb-1 bg-canvas px-2 py-1.5 font-mono text-[10px] uppercase tracking-[0.16em] text-faint">
-                {group.label}
-              </h2>
-              <div className="space-y-0.5">
-                {group.items.map((item) => {
-                  const meta = sourceMeta(item.source);
-                  const tags = item.tags_text.split(" ").filter(Boolean).slice(0, 3);
-                  return (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={() => onSelect(item.id)}
-                      data-selected={item.id === selectedId}
-                      className="row"
-                    >
-                      <div className="source-tile mt-0.5 text-accent">
-                        <SourceGlyph id={item.source} size={12} />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-baseline justify-between gap-3">
-                          <span className="truncate text-[13.5px] font-medium text-text">
-                            {item.title}
-                          </span>
-                          <span className="shrink-0 font-mono text-[10px] text-faint">
-                            {timeLabel(item.captured_at)}
-                          </span>
-                        </div>
-                        <p className="mt-0.5 line-clamp-1 text-[11.5px] leading-relaxed text-muted">
-                          {item.summary ?? item.excerpt ?? "No text extracted yet."}
-                        </p>
-                        <div className="mt-1 flex items-center gap-2">
-                          <span className="font-mono text-[10px] text-faint">{meta.label}</span>
-                          {tags.map((tag) => (
-                            <span
-                              key={tag}
-                              className="rounded bg-raised px-1.5 py-0.5 font-mono text-[9px] text-accent"
-                            >
-                              #{tag}
-                            </span>
-                          ))}
-                          {item.embedding_state === "pending" ? (
-                            <span className="font-mono text-[9px] text-accent">enriching…</span>
-                          ) : null}
-                          {item.embedding_state === "failed" ? (
-                            <span className="font-mono text-[9px] text-coral">enrich failed</span>
-                          ) : null}
-                        </div>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </section>
-          ))}
+        <div>
+          {layout === "grid" ? (
+            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+              {filtered.map((item) => (
+                <KnowledgeItem
+                  key={item.id}
+                  item={item}
+                  layout="grid"
+                  status={status}
+                  selected={item.id === selectedId}
+                  onSelect={onSelect}
+                  onArchive={onArchive}
+                  onUnarchive={onUnarchive}
+                  onTrash={onTrash}
+                  onRestore={onRestore}
+                  onPurge={onPurge}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="space-y-1">
+              {groups.map((group) => (
+                <section key={group.label}>
+                  <h2 className="sticky top-0 z-10 -mx-2 mb-1 bg-canvas px-2 py-1.5 font-mono text-[10px] uppercase tracking-[0.16em] text-faint">
+                    {group.label}
+                  </h2>
+                  <div className="space-y-0.5">
+                    {group.items.map((item) => (
+                      <KnowledgeItem
+                        key={item.id}
+                        item={item}
+                        layout="list"
+                        status={status}
+                        selected={item.id === selectedId}
+                        onSelect={onSelect}
+                        onArchive={onArchive}
+                        onUnarchive={onUnarchive}
+                        onTrash={onTrash}
+                        onRestore={onRestore}
+                        onPurge={onPurge}
+                      />
+                    ))}
+                  </div>
+                </section>
+              ))}
+            </div>
+          )}
 
           {hasMore ? (
-            <div className="pt-2">
+            <div ref={loadMoreRef} className="flex justify-center pt-3">
               <button
                 type="button"
                 onClick={onLoadMore}
                 disabled={loadingMore}
-                className="w-full rounded-[var(--radius)] border border-line px-3 py-2 text-[11.5px] text-muted transition hover:bg-raised hover:text-text disabled:opacity-50"
+                className="rounded-[var(--radius)] border border-line px-3 py-1.5 font-mono text-[10px] uppercase tracking-wider text-muted transition hover:bg-raised hover:text-text disabled:opacity-50"
               >
-                {loadingMore ? "Loading…" : "Load more"}
+                {loadingMore ? "Loading more…" : "Load more"}
               </button>
             </div>
           ) : null}

@@ -53,6 +53,10 @@
     font: inherit;
     color: inherit;
   }
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]) {
+    cursor: pointer;
+  }
   a {
     color: var(--accent);
     text-underline-offset: 2px;

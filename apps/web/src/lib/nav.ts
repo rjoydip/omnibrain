@@ -1,6 +1,8 @@
 export type View = "knowledge" | "apps" | "import" | "mcp" | "settings";
 export type Theme = "ink" | "paper" | "contrast";
 export type Accent = "cobalt" | "amber" | "mint" | "coral" | "violet" | "slate";
+export type ItemStatus = "active" | "archived" | "trash";
+export type ItemLayout = "list" | "grid";
 
 export const ACCENTS: Array<{ id: Accent; label: string }> = [
   { id: "cobalt", label: "Cobalt" },

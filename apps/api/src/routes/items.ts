@@ -66,9 +66,10 @@ itemRoutes.get("/", query(ItemQuerySchema), async (c) => {
     limit: q.limit,
     source: q.source,
     kind: q.kind,
+    status: q.status,
     cursor: q.cursor,
   });
-  const total = await repo.countItems();
+  const total = await repo.countItems(q.status);
   return c.json({ ...list, total });
 });
 
@@ -162,6 +163,47 @@ itemRoutes.delete("/:id", async (c) => {
   const ok = await repo.softDeleteItem(c.req.param("id"));
   if (!ok) return c.json({ error: { code: "not_found", message: "Item not found" } }, 404);
   await repo.audit(c.get("session").user_id, "item.delete", c.req.param("id"));
+  return c.json({ ok: true });
+});
+
+itemRoutes.post("/:id/archive", async (c) => {
+  requireRole(c, ["owner", "admin", "member"]);
+  const repo = repoOf(c.env, c.get("workspaceId"));
+  const ok = await repo.setItemArchived(c.req.param("id"), true);
+  if (!ok) return c.json({ error: { code: "not_found", message: "Item not found" } }, 404);
+  await repo.audit(c.get("session").user_id, "item.archive", c.req.param("id"));
+  return c.json({ ok: true });
+});
+
+itemRoutes.post("/:id/unarchive", async (c) => {
+  requireRole(c, ["owner", "admin", "member"]);
+  const repo = repoOf(c.env, c.get("workspaceId"));
+  const ok = await repo.setItemArchived(c.req.param("id"), false);
+  if (!ok) return c.json({ error: { code: "not_found", message: "Item not found" } }, 404);
+  await repo.audit(c.get("session").user_id, "item.unarchive", c.req.param("id"));
+  return c.json({ ok: true });
+});
+
+itemRoutes.post("/:id/restore", async (c) => {
+  requireRole(c, ["owner", "admin", "member"]);
+  const repo = repoOf(c.env, c.get("workspaceId"));
+  const ok = await repo.restoreItem(c.req.param("id"));
+  if (!ok) return c.json({ error: { code: "not_found", message: "Item not found" } }, 404);
+  await repo.audit(c.get("session").user_id, "item.restore", c.req.param("id"));
+  return c.json({ ok: true });
+});
+
+itemRoutes.delete("/:id/permanent", async (c) => {
+  requireRole(c, ["owner", "admin", "member"]);
+  const repo = repoOf(c.env, c.get("workspaceId"));
+  const vectors = await repo.purgeItem(c.req.param("id"));
+  if (!vectors) return c.json({ error: { code: "not_found", message: "Item not in trash" } }, 404);
+  if (c.env.VECTORS && vectors.length) {
+    for (let i = 0; i < vectors.length; i += 100) {
+      await c.env.VECTORS.deleteByIds(vectors.slice(i, i + 100));
+    }
+  }
+  await repo.audit(c.get("session").user_id, "item.purge", c.req.param("id"));
   return c.json({ ok: true });
 });
 

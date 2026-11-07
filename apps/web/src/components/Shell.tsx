@@ -1,11 +1,7 @@
 import { Button, Menu, MenuContent, MenuItem, MenuTrigger, Tooltip } from "@omnibrain/ui";
-import type { ReactNode } from "react";
-import type { Me } from "../lib/api";
-import { initials, sourceMeta } from "../lib/format";
-import { type Theme, VIEW_LABEL, type View } from "../lib/nav";
-import { SourceGlyph } from "./SourceGlyph";
 import {
   AppsIcon,
+  ArchiveIcon,
   AtlasIcon,
   BrandMark,
   ChevronDownIcon,
@@ -16,9 +12,16 @@ import {
   PlusIcon,
   SearchIcon,
   SettingsIcon,
+  SparkIcon,
   StreamIcon,
   SunIcon,
+  TrashIcon,
 } from "./icons";
+import { Fragment, type ReactNode } from "react";
+import type { Me } from "../lib/api";
+import { initials, sourceMeta } from "../lib/format";
+import { type ItemStatus, type Theme, VIEW_LABEL, type View } from "../lib/nav";
+import { SourceGlyph } from "./SourceGlyph";
 
 const NAV: Array<{
   view: View;
@@ -35,16 +38,20 @@ const NAV: Array<{
 export function Rail({
   me,
   view,
+  status,
   sources,
   source,
   onNavigate,
+  onStatus,
   onSelectSource,
 }: {
   me: Me;
   view: View;
+  status: ItemStatus;
   sources: Array<[string, number]>;
   source: string;
   onNavigate: (view: View) => void;
+  onStatus: (status: ItemStatus) => void;
   onSelectSource: (source: string) => void;
 }) {
   return (
@@ -64,17 +71,50 @@ export function Rail({
       <nav className="flex-1 space-y-0.5 overflow-y-auto p-2" aria-label="Primary">
         {NAV.map((item) => {
           const Icon = item.icon;
+          const knowledge = item.view === "knowledge";
           return (
-            <button
-              key={item.view}
-              type="button"
-              onClick={() => onNavigate(item.view)}
-              data-active={view === item.view}
-              className="rail-item"
-            >
-              <Icon size={16} className="rail-glyph" />
-              <span className="hidden lg:inline">{item.label}</span>
-            </button>
+            <Fragment key={item.view}>
+              <button
+                type="button"
+                onClick={() => {
+                  onNavigate(item.view);
+                  if (knowledge) onStatus("active");
+                }}
+                data-active={view === item.view && (!knowledge || status === "active")}
+                className="rail-item"
+              >
+                <Icon size={16} className="rail-glyph" />
+                <span className="hidden lg:inline">{item.label}</span>
+              </button>
+              {item.view === "mcp" ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onNavigate("knowledge");
+                      onStatus("archived");
+                    }}
+                    data-active={view === "knowledge" && status === "archived"}
+                    className="rail-item"
+                  >
+                    <ArchiveIcon size={16} className="rail-glyph" />
+                    <span className="hidden lg:inline">Archived</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onNavigate("knowledge");
+                      onStatus("trash");
+                    }}
+                    data-active={view === "knowledge" && status === "trash"}
+                    className="rail-item"
+                  >
+                    <TrashIcon size={16} className="rail-glyph" />
+                    <span className="hidden lg:inline">Trash</span>
+                  </button>
+                </>
+              ) : null}
+            </Fragment>
           );
         })}
 
@@ -89,35 +129,37 @@ export function Rail({
               Manage
             </button>
           </div>
-          {sources.slice(0, 7).map(([item, count]) => {
-            const meta = sourceMeta(item);
-            const active = source === item;
-            return (
-              <button
-                key={item}
-                type="button"
-                onClick={() => onSelectSource(active ? "all" : item)}
-                aria-pressed={active}
-                className={`flex w-full items-center gap-2 rounded px-2 py-1 text-left text-[11px] transition ${
-                  active
-                    ? "bg-signal/15 font-medium text-text"
-                    : "text-muted hover:bg-raised hover:text-text"
-                }`}
-              >
-                <span
-                  className={`grid size-4 shrink-0 place-items-center rounded-[4px] transition-colors ${
-                    active ? "bg-signal text-signal-ink" : "text-accent"
+          <div className="max-h-56 space-y-0.5 overflow-y-auto pr-0.5">
+            {sources.map(([item, count]) => {
+              const meta = sourceMeta(item);
+              const active = source === item;
+              return (
+                <button
+                  key={item}
+                  type="button"
+                  onClick={() => onSelectSource(active ? "all" : item)}
+                  aria-pressed={active}
+                  className={`flex w-full items-center gap-2 rounded px-2 py-1 text-left text-[11px] transition ${
+                    active
+                      ? "bg-signal/15 font-medium text-text"
+                      : "text-muted hover:bg-raised hover:text-text"
                   }`}
                 >
-                  <SourceGlyph id={item} size={11} />
-                </span>
-                <span className="min-w-0 flex-1 truncate">{meta.label}</span>
-                <span className={`font-mono text-[10px] ${active ? "text-text" : "text-faint"}`}>
-                  {count}
-                </span>
-              </button>
-            );
-          })}
+                  <span
+                    className={`grid size-4 shrink-0 place-items-center rounded-[4px] transition-colors ${
+                      active ? "bg-signal text-signal-ink" : "text-accent"
+                    }`}
+                  >
+                    <SourceGlyph id={item} size={11} />
+                  </span>
+                  <span className="min-w-0 flex-1 truncate">{meta.label}</span>
+                  <span className={`font-mono text-[10px] ${active ? "text-text" : "text-faint"}`}>
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
           {sources.length === 0 ? (
             <p className="px-2 py-1 text-[10.5px] text-faint">No captures yet</p>
           ) : null}
@@ -153,6 +195,7 @@ export function TopBar({
   onCycleTheme,
   onRecall,
   onCapture,
+  onNote,
   onImport,
   onSettings,
 }: {
@@ -162,6 +205,7 @@ export function TopBar({
   onCycleTheme: () => void;
   onRecall: () => void;
   onCapture: () => void;
+  onNote: () => void;
   onImport: () => void;
   onSettings: () => void;
 }) {
@@ -232,6 +276,10 @@ export function TopBar({
               </button>
             </MenuTrigger>
             <MenuContent>
+              <MenuItem onSelect={onNote}>
+                <SparkIcon size={13} className="text-accent" />
+                Write a note
+              </MenuItem>
               <MenuItem onSelect={onCapture}>
                 <PlusIcon size={13} className="text-accent" />
                 Capture a link

@@ -86,6 +86,35 @@ describe("items", () => {
     expect(await repo.countItems()).toBe(0);
   });
 
+  test("archive hides from the active list and restore returns it", async () => {
+    const { db, wsA } = await setup();
+    const repo = forWorkspace(db, wsA);
+    const { item } = await repo.createItem({
+      ...baseItem,
+      canonicalUrl: "https://example.com/archive",
+    });
+
+    expect(await repo.setItemArchived(item.id, true)).toBe(true);
+    expect((await repo.listItems({ status: "active" })).items).toHaveLength(0);
+    expect(await repo.countItems("active")).toBe(0);
+    expect((await repo.listItems({ status: "archived" })).items).toHaveLength(1);
+    expect(await repo.countItems("archived")).toBe(1);
+
+    await repo.setItemArchived(item.id, false);
+    expect((await repo.listItems({ status: "active" })).items).toHaveLength(1);
+
+    await repo.softDeleteItem(item.id);
+    expect((await repo.listItems({ status: "trash" })).items).toHaveLength(1);
+    expect(await repo.restoreItem(item.id)).toBe(true);
+    expect((await repo.listItems({ status: "active" })).items).toHaveLength(1);
+    expect((await repo.searchLexical('"vectorize"*')).length).toBeGreaterThan(0);
+
+    await repo.softDeleteItem(item.id);
+    expect(await repo.purgeItem(item.id)).toEqual([]);
+    expect(await repo.countItems("trash")).toBe(0);
+    expect(await repo.purgeItem(item.id)).toBeNull();
+  });
+
   test("patch updates tags and reindexes search", async () => {
     const { db, wsA } = await setup();
     const repo = forWorkspace(db, wsA);

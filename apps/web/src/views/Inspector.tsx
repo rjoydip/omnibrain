@@ -1,15 +1,25 @@
 import { Badge, Button, Tooltip } from "@omnibrain/ui";
-import { useRef, useState } from "react";
+import { isMarkdown } from "@omnibrain/core/markdown";
+import { lazy, Suspense, useRef, useState } from "react";
 import {
   ArrowUpRightIcon,
+  CheckIcon,
   CloseIcon,
+  CodeIcon,
+  CopyIcon,
+  EyeIcon,
   RefreshIcon,
   SparkIcon,
   TrashIcon,
+  WrapIcon,
 } from "../components/icons";
-import { NoteText, detectLanguage } from "../components/NoteText";
+import { NoteText } from "../components/NoteText";
 import type { Item } from "../lib/api";
 import { dayLabel, sourceMeta, timeLabel } from "../lib/format";
+
+const Markdown = lazy(() =>
+  import("../components/Markdown").then((m) => ({ default: m.Markdown })),
+);
 
 function Provenance({ item }: { item: Item }) {
   return (
@@ -45,7 +55,25 @@ export function Inspector({
   const [confirm, setConfirm] = useState(false);
   const [busy, setBusy] = useState(false);
   const [resizing, setResizing] = useState(false);
+  const [rawFor, setRawFor] = useState<string | null>(null);
+  const [wrapText, setWrapText] = useState(true);
+  const [copied, setCopied] = useState<string | null>(null);
   const dragRef = useRef<{ x: number; width: number } | null>(null);
+
+  const rawNote = Boolean(item) && rawFor === item?.id;
+
+  const noteIsMarkdown = item?.kind === "note" && item.excerpt ? isMarkdown(item.excerpt) : false;
+
+  const copyExcerpt = async () => {
+    if (!item?.excerpt) return;
+    try {
+      await navigator.clipboard.writeText(item.excerpt);
+      setCopied(item.id);
+      setTimeout(() => setCopied(null), 1500);
+    } catch {
+      // Clipboard can be unavailable outside a secure context.
+    }
+  };
 
   const startResize = (e: React.PointerEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -121,19 +149,96 @@ export function Inspector({
             <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-faint">
               {item.kind === "note" ? "Original note" : "Extracted text"}
             </span>
-            {item.kind === "note" ? (
-              <span className="font-mono text-[9px] uppercase tracking-wider text-accent">
-                {detectLanguage(item.excerpt)}
-              </span>
-            ) : null}
+            <div className="flex items-center gap-0.5">
+              <Tooltip label={copied === item.id ? "Copied" : "Copy text"}>
+                <button
+                  type="button"
+                  onClick={() => void copyExcerpt()}
+                  aria-label="Copy text"
+                  className="grid size-6 place-items-center rounded-[5px] text-faint transition hover:bg-raised hover:text-text"
+                >
+                  {copied === item.id ? (
+                    <CheckIcon size={12} className="text-mint" />
+                  ) : (
+                    <CopyIcon size={12} />
+                  )}
+                </button>
+              </Tooltip>
+              <Tooltip label={wrapText ? "Disable word wrap" : "Enable word wrap"}>
+                <button
+                  type="button"
+                  onClick={() => setWrapText((value) => !value)}
+                  aria-label="Toggle word wrap"
+                  aria-pressed={wrapText}
+                  className={`grid size-6 place-items-center rounded-[5px] transition hover:bg-raised ${
+                    wrapText ? "text-accent" : "text-faint hover:text-text"
+                  }`}
+                >
+                  <WrapIcon size={12} />
+                </button>
+              </Tooltip>
+              {item.kind === "note" && noteIsMarkdown ? (
+                <>
+                  <Tooltip label="Rendered view">
+                    <button
+                      type="button"
+                      onClick={() => setRawFor(null)}
+                      aria-label="Rendered view"
+                      aria-pressed={!rawNote}
+                      className={`grid size-6 place-items-center rounded-[5px] transition hover:bg-raised ${
+                        rawNote ? "text-faint hover:text-text" : "text-accent"
+                      }`}
+                    >
+                      <EyeIcon size={12} />
+                    </button>
+                  </Tooltip>
+                  <Tooltip label="Raw markdown">
+                    <button
+                      type="button"
+                      onClick={() => setRawFor(item.id)}
+                      aria-label="Raw markdown"
+                      aria-pressed={rawNote}
+                      className={`grid size-6 place-items-center rounded-[5px] transition hover:bg-raised ${
+                        rawNote ? "text-accent" : "text-faint hover:text-text"
+                      }`}
+                    >
+                      <CodeIcon size={12} />
+                    </button>
+                  </Tooltip>
+                </>
+              ) : null}
+            </div>
           </div>
           {item.kind === "note" ? (
-            <NoteText text={item.excerpt} className={expanded ? "max-h-[28rem]" : "max-h-64"} />
+            noteIsMarkdown && !rawNote ? (
+              <Suspense
+                fallback={
+                  <NoteText
+                    text={item.excerpt}
+                    wrap={wrapText}
+                    className={expanded ? "max-h-[28rem]" : "max-h-64"}
+                  />
+                }
+              >
+                <Markdown
+                  text={item.excerpt}
+                  className={
+                    expanded ? "max-h-[28rem] overflow-y-auto" : "max-h-64 overflow-y-auto"
+                  }
+                />
+              </Suspense>
+            ) : (
+              <NoteText
+                text={item.excerpt}
+                wrap={wrapText}
+                className={expanded ? "max-h-[28rem]" : "max-h-64"}
+              />
+            )
           ) : (
             <p
-              className={`overflow-y-auto whitespace-pre-wrap rounded-[var(--radius)] bg-canvas/50 p-3 text-[12px] leading-relaxed text-muted ${
-                expanded ? "max-h-[28rem]" : "max-h-64"
-              }`}
+              className={`overflow-y-auto rounded-[var(--radius)] bg-canvas/50 p-3 text-[12px] leading-relaxed text-muted ${
+                wrapText ? "whitespace-pre-wrap" : "overflow-x-auto whitespace-pre"
+              } ${expanded ? "max-h-[28rem]" : "max-h-64"}`}
             >
               {item.excerpt}
             </p>
@@ -157,28 +262,26 @@ export function Inspector({
         </div>
       ) : null}
 
-      <dl
-        className={`grid gap-x-3 gap-y-2 pt-3 font-mono text-[10px] ${
-          expanded ? "grid-cols-3" : "grid-cols-2"
-        }`}
-      >
-        <div>
-          <dt className="uppercase tracking-wider text-faint">Captured</dt>
-          <dd className="mt-0.5 text-muted">
+      <dl className="grid grid-cols-[minmax(0,1.5fr)_minmax(0,0.8fr)_minmax(0,0.8fr)_minmax(0,1.5fr)] gap-x-2 pt-3 font-mono text-[10px]">
+        <div className="min-w-0">
+          <dt className="truncate uppercase tracking-wider text-faint">Captured</dt>
+          <dd className="mt-0.5 truncate text-muted">
             {dayLabel(item.captured_at)} · {timeLabel(item.captured_at)}
           </dd>
         </div>
-        <div>
-          <dt className="uppercase tracking-wider text-faint">Source</dt>
-          <dd className="mt-0.5 text-muted">{sourceMeta(item.source).label}</dd>
+        <div className="min-w-0">
+          <dt className="truncate uppercase tracking-wider text-faint">Language</dt>
+          <dd className="mt-0.5 truncate text-muted">{item.lang ?? "unknown"}</dd>
         </div>
-        <div>
-          <dt className="uppercase tracking-wider text-faint">ID</dt>
-          <dd className="mt-0.5 truncate text-muted">{item.id}</dd>
+        <div className="min-w-0">
+          <dt className="truncate uppercase tracking-wider text-faint">Source</dt>
+          <dd className="mt-0.5 truncate text-muted">{sourceMeta(item.source).label}</dd>
         </div>
-        <div>
-          <dt className="uppercase tracking-wider text-faint">Language</dt>
-          <dd className="mt-0.5 text-muted">{item.lang ?? "unknown"}</dd>
+        <div className="min-w-0">
+          <dt className="truncate uppercase tracking-wider text-faint">Updated</dt>
+          <dd className="mt-0.5 truncate text-muted">
+            {dayLabel(item.updated_at)} · {timeLabel(item.updated_at)}
+          </dd>
         </div>
       </dl>
 

@@ -4,6 +4,7 @@ export type {
   ItemList,
   ItemListOptions,
   ItemPatch,
+  ItemStatus,
   McpEventInput,
   McpEventRow,
   ScopedRepo,

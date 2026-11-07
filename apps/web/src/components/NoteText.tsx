@@ -89,16 +89,24 @@ function tokenize(text: string): ReactNode[] {
 }
 
 /** Original note text with a small language detector and theme-aware highlighting. */
-export function NoteText({ text, className }: { text: string; className?: string }) {
+export function NoteText({
+  text,
+  className,
+  wrap = true,
+}: {
+  text: string;
+  className?: string;
+  wrap?: boolean;
+}) {
   const lang = useMemo(() => detectLanguage(text), [text]);
   const code = CODE_LANGS.has(lang);
   const body = useMemo(() => (code ? tokenize(text) : text), [code, text]);
 
   return (
     <pre
-      className={`overflow-x-auto overflow-y-auto rounded-[var(--radius)] bg-canvas/50 p-3 leading-relaxed whitespace-pre-wrap text-text ${
-        code ? "font-mono text-[11.5px]" : "font-sans text-[12px]"
-      } ${className ?? ""}`}
+      className={`overflow-x-auto overflow-y-auto rounded-[var(--radius)] bg-canvas/50 p-3 leading-relaxed text-text ${
+        wrap ? "whitespace-pre-wrap" : "whitespace-pre"
+      } ${code ? "font-mono text-[11.5px]" : "font-sans text-[12px]"} ${className ?? ""}`}
     >
       <code>{body}</code>
     </pre>

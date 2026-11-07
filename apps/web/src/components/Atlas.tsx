@@ -35,11 +35,13 @@ function geometry(width: number, height: number, rowCount: number) {
 
 export function Atlas({
   items,
+  sources: knownSources = [],
   filter,
   onFilter,
   theme,
 }: {
   items: Item[];
+  sources?: string[];
   filter: AtlasFilter | null;
   onFilter: (filter: AtlasFilter | null) => void;
   theme: string;
@@ -62,6 +64,12 @@ export function Atlas({
     const currentWeek = startOfWeek(now);
     const start = currentWeek - (WEEKS - 1) * 7 * DAY;
     const counts = new Map<string, number[]>();
+    for (const source of knownSources) {
+      counts.set(
+        source,
+        Array.from({ length: WEEKS }, () => 0),
+      );
+    }
     for (const item of items) {
       const week = startOfWeek(item.captured_at);
       const index = Math.round((week - start) / (7 * DAY));
@@ -70,12 +78,12 @@ export function Atlas({
       row[index] = (row[index] ?? 0) + 1;
       counts.set(item.source, row);
     }
-    const rows = [...counts.entries()]
-      .toSorted((a, b) => b[1].reduce((x, y) => x + y, 0) - a[1].reduce((x, y) => x + y, 0))
-      .slice(0, 8);
+    const rows = [...counts.entries()].toSorted(
+      (a, b) => b[1].reduce((x, y) => x + y, 0) - a[1].reduce((x, y) => x + y, 0),
+    );
     const max = Math.max(1, ...rows.flatMap(([, row]) => row));
     return { start, rows, max };
-  }, [items, now]);
+  }, [items, knownSources, now]);
 
   const draw = useCallback(() => {
     void theme;
@@ -421,7 +429,8 @@ export function Atlas({
       </div>
       <div
         ref={wrapRef}
-        className="relative h-28 w-full overflow-hidden rounded-[var(--radius)] bg-panel md:h-32"
+        className="relative w-full overflow-hidden rounded-[var(--radius)] bg-panel"
+        style={{ height: Math.max(112, data.rows.length * 14 + 24) }}
       >
         <canvas
           ref={canvasRef}

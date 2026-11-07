@@ -5,7 +5,7 @@ import { Recall } from "./components/Recall";
 import { BootSplash, MobileNav, Rail, TopBar } from "./components/Shell";
 import { type Account, ApiError, api, type Item, type Me } from "./lib/api";
 import { sourceMeta } from "./lib/format";
-import type { Accent, Theme, View } from "./lib/nav";
+import type { Accent, ItemLayout, ItemStatus, Theme, View } from "./lib/nav";
 import { AppsView } from "./views/Apps";
 import { AuthScreen } from "./views/Auth";
 import { ImportView } from "./views/Import";
@@ -14,6 +14,9 @@ import { Knowledge } from "./views/Knowledge";
 import { SettingsView } from "./views/Settings";
 
 const McpView = lazy(() => import("./views/Mcp").then((m) => ({ default: m.McpView })));
+const NoteCapture = lazy(() =>
+  import("./components/NoteCapture").then((m) => ({ default: m.NoteCapture })),
+);
 
 const THEME_ORDER: Theme[] = ["ink", "paper", "contrast"];
 const ACCENT_IDS = new Set<Accent>(["cobalt", "amber", "mint", "coral", "violet", "slate"]);
@@ -49,6 +52,11 @@ export default function App() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [atlasFilter, setAtlasFilter] = useState<AtlasFilter | null>(null);
   const [sourceFilter, setSourceFilter] = useState("all");
+  const [itemStatus, setItemStatus] = useState<ItemStatus>("active");
+  const [itemLayout, setItemLayout] = useState<ItemLayout>(() =>
+    localStorage.getItem("omnibrain.itemLayout.v3") === "list" ? "list" : "grid",
+  );
+  const [knownSources, setKnownSources] = useState<string[]>([]);
 
   const [theme, setTheme] = useState<Theme>(initialTheme);
   const [accent, setAccent] = useState<Accent>(initialAccent);
@@ -58,6 +66,7 @@ export default function App() {
   });
   const [recallOpen, setRecallOpen] = useState(false);
   const [recallSeed, setRecallSeed] = useState("");
+  const [noteOpen, setNoteOpen] = useState(false);
   const [importPreferred, setImportPreferred] = useState<string | null>(null);
 
   const toast = useCallback((message: string, tone: "ok" | "error" = "ok") => {
@@ -86,6 +95,10 @@ export default function App() {
     localStorage.setItem("omnibrain.panelWidth.v2", String(panelWidth));
   }, [panelWidth]);
 
+  useEffect(() => {
+    localStorage.setItem("omnibrain.itemLayout.v3", itemLayout);
+  }, [itemLayout]);
+
   const bootMe = useCallback(async () => {
     setBoot("loading");
     setBootError(null);
@@ -109,15 +122,25 @@ export default function App() {
   }, [bootMe]);
 
   const refresh = useCallback(async () => {
-    const [list, acct] = await Promise.all([api.items({ limit: 100 }), api.account()]);
+    const [list, acct] = await Promise.all([
+      api.items({ limit: 100, status: itemStatus }),
+      api.account(),
+    ]);
     setItems(list.items);
     setTotal(list.total);
     setNextCursor(list.nextCursor);
+    setKnownSources((prev) => {
+      const next = new Set(prev);
+      for (const item of list.items) next.add(item.source);
+      return next.size === prev.length ? prev : [...next];
+    });
     setAccount(acct);
     setMe((prev) =>
-      prev ? { ...prev, workspace: { ...prev.workspace, plan: acct.workspace.plan } } : prev,
+      prev && prev.workspace.plan !== acct.workspace.plan
+        ? { ...prev, workspace: { ...prev.workspace, plan: acct.workspace.plan } }
+        : prev,
     );
-  }, []);
+  }, [itemStatus]);
 
   useEffect(() => {
     if (!me) return;
@@ -186,6 +209,49 @@ export default function App() {
     [refresh, toast],
   );
 
+  const setArchived = useCallback(
+    async (id: string, archived: boolean) => {
+      try {
+        await (archived ? api.archiveItem(id) : api.unarchiveItem(id));
+        setSelectedId(null);
+        await refresh();
+        toast(archived ? "Archived. Find it under Archived." : "Back in the active stream.");
+      } catch (err) {
+        toast(err instanceof ApiError ? err.message : "Archive failed", "error");
+      }
+    },
+    [refresh, toast],
+  );
+
+  const restoreItem = useCallback(
+    async (id: string) => {
+      try {
+        await api.restoreItem(id);
+        setSelectedId(null);
+        await refresh();
+        toast("Restored to your library.");
+      } catch (err) {
+        toast(err instanceof ApiError ? err.message : "Restore failed", "error");
+      }
+    },
+    [refresh, toast],
+  );
+
+  const purgeItem = useCallback(
+    async (id: string) => {
+      if (!window.confirm("Delete this item permanently? This cannot be undone.")) return;
+      try {
+        await api.purgeItem(id);
+        setSelectedId(null);
+        await refresh();
+        toast("Deleted permanently.");
+      } catch (err) {
+        toast(err instanceof ApiError ? err.message : "Delete failed", "error");
+      }
+    },
+    [refresh, toast],
+  );
+
   const retryItem = useCallback(
     async (id: string) => {
       try {
@@ -203,7 +269,7 @@ export default function App() {
     if (!nextCursor || loadingMore) return;
     setLoadingMore(true);
     try {
-      const res = await api.items({ limit: 100, cursor: nextCursor });
+      const res = await api.items({ limit: 100, cursor: nextCursor, status: itemStatus });
       setItems((prev) => [...prev, ...res.items]);
       setNextCursor(res.nextCursor);
     } catch (err) {
@@ -211,7 +277,7 @@ export default function App() {
     } finally {
       setLoadingMore(false);
     }
-  }, [nextCursor, loadingMore, toast]);
+  }, [nextCursor, loadingMore, toast, itemStatus]);
 
   const signOut = useCallback(() => {
     setMe(null);
@@ -223,7 +289,9 @@ export default function App() {
     setView("knowledge");
     setAtlasFilter(null);
     setSourceFilter("all");
+    setItemStatus("active");
     setRecallOpen(false);
+    setNoteOpen(false);
   }, []);
 
   if (boot !== "ready") {
@@ -267,9 +335,14 @@ export default function App() {
       <Rail
         me={me}
         view={view}
+        status={itemStatus}
         sources={sources}
         source={sourceFilter}
         onNavigate={setView}
+        onStatus={(next) => {
+          setSelectedId(null);
+          setItemStatus(next);
+        }}
         onSelectSource={selectSource}
       />
 
@@ -286,6 +359,7 @@ export default function App() {
           }
           onRecall={() => openRecall("")}
           onCapture={() => openRecall("")}
+          onNote={() => setNoteOpen(true)}
           onImport={() => {
             setImportPreferred(null);
             setView("import");
@@ -307,6 +381,15 @@ export default function App() {
                 onFilter={applyAtlasFilter}
                 source={sourceFilter}
                 onSource={selectSource}
+                onArchive={(id) => void setArchived(id, true)}
+                onUnarchive={(id) => void setArchived(id, false)}
+                onTrash={(id) => void deleteItem(id)}
+                onRestore={(id) => void restoreItem(id)}
+                onPurge={(id) => void purgeItem(id)}
+                status={itemStatus}
+                layout={itemLayout}
+                onLayout={setItemLayout}
+                allSources={knownSources}
                 onOpenRecall={() => openRecall("")}
                 onNavigateImport={() => {
                   setImportPreferred(null);
@@ -315,7 +398,7 @@ export default function App() {
                 theme={theme}
                 hasMore={Boolean(nextCursor)}
                 loadingMore={loadingMore}
-                onLoadMore={() => void loadMore()}
+                onLoadMore={loadMore}
               />
             ) : null}
 
@@ -383,7 +466,7 @@ export default function App() {
       <Recall
         open={recallOpen}
         seed={recallSeed}
-        recent={items.slice(0, 5)}
+        recent={items.filter((item) => !item.deleted_at && !item.archived_at).slice(0, 5)}
         onClose={() => setRecallOpen(false)}
         onOpenItem={(id) => void openItem(id)}
         onNavigate={setView}
@@ -392,6 +475,21 @@ export default function App() {
         theme={theme}
         toast={toast}
       />
+
+      {noteOpen ? (
+        <Suspense fallback={null}>
+          <NoteCapture
+            open
+            onClose={() => setNoteOpen(false)}
+            onSaved={() => {
+              setNoteOpen(false);
+              setView("knowledge");
+              void refresh();
+              toast("Note saved to your library.");
+            }}
+          />
+        </Suspense>
+      ) : null}
     </div>
   );
 }

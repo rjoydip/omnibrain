@@ -37,7 +37,10 @@ export interface ItemListOptions {
   limit?: number;
   cursor?: string;
   includeDeleted?: boolean;
+  status?: ItemStatus;
 }
+
+export type ItemStatus = "active" | "archived" | "trash";
 
 export interface ItemList {
   items: ItemRow[];
@@ -176,8 +179,18 @@ export async function listItems(
 ): Promise<ItemList> {
   assertWorkspaceId(ws);
   const limit = Math.min(Math.max(opts.limit ?? 50, 1), 100);
-  const where = ["workspace_id = ?", opts.includeDeleted ? "1=1" : "deleted_at is null"];
+  const where = ["workspace_id = ?"];
   const params: unknown[] = [ws];
+
+  if (opts.status === "active") {
+    where.push("deleted_at is null and archived_at is null");
+  } else if (opts.status === "archived") {
+    where.push("deleted_at is null and archived_at is not null");
+  } else if (opts.status === "trash") {
+    where.push("deleted_at is not null");
+  } else {
+    where.push(opts.includeDeleted ? "1=1" : "deleted_at is null and archived_at is null");
+  }
 
   if (opts.source) {
     where.push("source = ?");
@@ -258,14 +271,52 @@ export async function softDeleteItem(db: SqlClient, ws: string, id: string): Pro
   return true;
 }
 
+export async function setItemArchived(
+  db: SqlClient,
+  ws: string,
+  id: string,
+  archived: boolean,
+): Promise<boolean> {
+  assertWorkspaceId(ws);
+  const item = await getItem(db, ws, id);
+  if (!item) return false;
+  await db.run(
+    "update items set archived_at = ?, updated_at = ? where id = ? and workspace_id = ?",
+    [archived ? Date.now() : null, Date.now(), id, ws],
+  );
+  return true;
+}
+
+export async function restoreItem(db: SqlClient, ws: string, id: string): Promise<boolean> {
+  assertWorkspaceId(ws);
+  const item = await db.first<ItemRow>(
+    "select * from items where id = ? and workspace_id = ? and deleted_at is not null",
+    [id, ws],
+  );
+  if (!item) return false;
+  await db.run(
+    "update items set deleted_at = null, archived_at = null, updated_at = ? where id = ? and workspace_id = ?",
+    [Date.now(), id, ws],
+  );
+  return true;
+}
+
 export async function countItems(
   db: SqlClient,
   ws: string,
-  includeDeleted = false,
+  status: ItemStatus = "active",
 ): Promise<number> {
   assertWorkspaceId(ws);
+  const filter =
+    status === "archived"
+      ? " and deleted_at is null and archived_at is not null"
+      : status === "trash"
+        ? " and deleted_at is not null"
+        : status === "active"
+          ? " and deleted_at is null and archived_at is null"
+          : "";
   const row = await db.first<{ n: number }>(
-    `select count(*) as n from items where workspace_id = ?${includeDeleted ? "" : " and deleted_at is null"}`,
+    `select count(*) as n from items where workspace_id = ?${filter}`,
     [ws],
   );
   return row?.n ?? 0;
@@ -324,6 +375,21 @@ export async function itemsByIds(db: SqlClient, ws: string, ids: string[]): Prom
   );
   const byId = new Map(rows.map((r) => [r.id, r]));
   return unique.map((id) => byId.get(id)).filter((r): r is ItemRow => Boolean(r));
+}
+
+export async function purgeItem(db: SqlClient, ws: string, id: string): Promise<string[] | null> {
+  assertWorkspaceId(ws);
+  const item = await db.first<{ id: string }>(
+    "select id from items where id = ? and workspace_id = ? and deleted_at is not null",
+    [id, ws],
+  );
+  if (!item) return null;
+  const vectors = await db.all<{ vector_id: string }>(
+    "select vector_id from item_chunks where item_id = ?",
+    [id],
+  );
+  await db.run("delete from items where id = ? and workspace_id = ?", [id, ws]);
+  return vectors.map((v) => v.vector_id);
 }
 
 export async function purgeTrash(db: SqlClient, ws: string, olderThan: number): Promise<string[]> {
@@ -1148,7 +1214,10 @@ export function forWorkspace(db: SqlClient, workspaceId: string) {
     createItem: (input: ItemInput) => createItem(db, workspaceId, input),
     updateItem: (id: string, patch: ItemPatch) => updateItem(db, workspaceId, id, patch),
     softDeleteItem: (id: string) => softDeleteItem(db, workspaceId, id),
-    countItems: (includeDeleted?: boolean) => countItems(db, workspaceId, includeDeleted),
+    setItemArchived: (id: string, archived: boolean) =>
+      setItemArchived(db, workspaceId, id, archived),
+    restoreItem: (id: string) => restoreItem(db, workspaceId, id),
+    countItems: (status?: ItemStatus) => countItems(db, workspaceId, status),
     searchLexical: (
       q: string,
       opts?: { limit?: number; source?: string; kind?: string; since?: number },
@@ -1162,6 +1231,7 @@ export function forWorkspace(db: SqlClient, workspaceId: string) {
     vectorIds: () => allVectorIds(db, workspaceId),
     exportWorkspace: () => exportWorkspace(db, workspaceId),
     purgeTrash: (olderThan: number) => purgeTrash(db, workspaceId, olderThan),
+    purgeItem: (id: string) => purgeItem(db, workspaceId, id),
     listConnections: () => listConnections(db, workspaceId),
     getConnection: (id: string) => getConnection(db, workspaceId, id),
     upsertConnection: (input: Parameters<typeof upsertConnection>[2]) =>

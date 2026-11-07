@@ -153,6 +153,51 @@ export const EllipsisIcon = (p: IconProps) => (
   </Icon>
 );
 
+export const ArchiveIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M4 5h16v3H4zM6 8v11h12V8" />
+    <path d="M10 12h4" />
+  </Icon>
+);
+
+export const RestoreIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M4 5h16v3H4zM6 8v11h12V8" />
+    <path d="M12 17v-6M9.5 13.5L12 11l2.5 2.5" />
+  </Icon>
+);
+
+export const ListIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M8 6h12M8 12h12M8 18h12" />
+    <circle cx="4" cy="6" r="1" fill="currentColor" stroke="none" />
+    <circle cx="4" cy="12" r="1" fill="currentColor" stroke="none" />
+    <circle cx="4" cy="18" r="1" fill="currentColor" stroke="none" />
+  </Icon>
+);
+
+export const GridIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x="4" y="4" width="6.5" height="6.5" rx="1" />
+    <rect x="13.5" y="4" width="6.5" height="6.5" rx="1" />
+    <rect x="4" y="13.5" width="6.5" height="6.5" rx="1" />
+    <rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1" />
+  </Icon>
+);
+
+export const WrapIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M4 6h16M4 12h11a3 3 0 1 1 0 6H9" />
+    <path d="M12 15l-3 3 3 3" />
+  </Icon>
+);
+
+export const CodeIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M8 7l-5 5 5 5M16 7l5 5-5 5" />
+  </Icon>
+);
+
 export const FilterIcon = (p: IconProps) => (
   <Icon {...p}>
     <path d="M4 5h16l-6.2 7.4v5.1l-3.6 1.8v-6.9z" />
