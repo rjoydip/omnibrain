@@ -1,6 +1,7 @@
 import { type AiBinding, chunkText, embedTexts, summarize } from "@omnibrain/ai";
 import { forWorkspace, type ItemRow } from "@omnibrain/db";
 import { dbOf, type Env } from "../env";
+import { refreshItemEdges } from "./graph";
 
 const MAX_BYTES = 5 * 1024 * 1024;
 
@@ -214,6 +215,7 @@ export async function enrichItem(
       contentR2Key,
       embeddingState,
     });
+    await refreshItemEdges(env, workspaceId, itemId).catch(() => undefined);
     return { ok: true };
   } catch (error) {
     await repo.updateItem(itemId, { embeddingState: "failed" }).catch(() => {});

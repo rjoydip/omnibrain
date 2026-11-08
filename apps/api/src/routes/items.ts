@@ -15,6 +15,7 @@ import type { AppEnv } from "../env";
 import { repoOf } from "../env";
 import { background, type Ctx, requireRole } from "../http";
 import { enrichItem } from "../services/enrich";
+import { refreshItemEdges, relatedForItem } from "../services/graph";
 import { buildItemInput, createItemFromRaw } from "../services/items";
 import { body, query } from "../validate";
 
@@ -89,6 +90,10 @@ itemRoutes.post("/", body(ItemCreateSchema), async (c) => {
       source: item.source,
     });
     if (input.enrich && item.url) scheduleEnrich(c, workspaceId, item.id);
+    background(
+      c,
+      refreshItemEdges(c.env, workspaceId, item.id).catch(() => undefined),
+    );
   }
   return c.json({ item, created, usage: ent }, 201);
 });
@@ -135,6 +140,13 @@ itemRoutes.post("/batch", body(BatchSchema), async (c) => {
   });
 });
 
+itemRoutes.get("/:id/related", async (c) => {
+  const limit = Math.min(Math.max(Number(c.req.query("limit") ?? 6) || 6, 1), 12);
+  const related = await relatedForItem(c.env, c.get("workspaceId"), c.req.param("id"), limit);
+  if (!related) return c.json({ error: { code: "not_found", message: "Item not found" } }, 404);
+  return c.json({ items: related });
+});
+
 itemRoutes.get("/:id", async (c) => {
   const repo = repoOf(c.env, c.get("workspaceId"));
   const item = await repo.getItem(c.req.param("id"));
@@ -154,6 +166,10 @@ itemRoutes.patch("/:id", body(ItemPatchSchema), async (c) => {
   });
   if (!item) return c.json({ error: { code: "not_found", message: "Item not found" } }, 404);
   await repo.audit(c.get("session").user_id, "item.update", item.id);
+  background(
+    c,
+    refreshItemEdges(c.env, c.get("workspaceId"), item.id).catch(() => undefined),
+  );
   return c.json({ item });
 });
 

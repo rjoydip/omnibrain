@@ -115,6 +115,19 @@ describe("items", () => {
     expect(await repo.purgeItem(item.id)).toBeNull();
   });
 
+  test("stores undirected graph edges and resolves related items", async () => {
+    const { db, wsA } = await setup();
+    const repo = forWorkspace(db, wsA);
+    const a = await repo.createItem({ ...baseItem, canonicalUrl: "https://example.com/graph-a" });
+    const b = await repo.createItem({ ...baseItem, canonicalUrl: "https://example.com/graph-b" });
+
+    await repo.replaceItemEdges(a.item.id, [{ toItemId: b.item.id, kind: "tag", weight: 0.6 }]);
+
+    expect((await repo.relatedItems(a.item.id)).map((r) => r.id)).toEqual([b.item.id]);
+    expect((await repo.relatedItems(b.item.id)).map((r) => r.id)).toEqual([a.item.id]);
+    expect((await repo.relatedItems(a.item.id))[0]?.relation).toBe("tag");
+  });
+
   test("patch updates tags and reindexes search", async () => {
     const { db, wsA } = await setup();
     const repo = forWorkspace(db, wsA);

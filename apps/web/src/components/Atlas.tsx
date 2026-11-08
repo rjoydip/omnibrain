@@ -12,6 +12,7 @@ export interface AtlasFilter {
 
 const WEEKS = 52;
 const DAY = 86_400_000;
+const NO_SOURCES: string[] = [];
 const LEFT = 72;
 const RIGHT = 8;
 const TOP = 6;
@@ -35,7 +36,7 @@ function geometry(width: number, height: number, rowCount: number) {
 
 export function Atlas({
   items,
-  sources: knownSources = [],
+  sources: knownSources = NO_SOURCES,
   filter,
   onFilter,
   theme,

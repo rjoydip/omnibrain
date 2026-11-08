@@ -59,6 +59,7 @@ export interface Item {
   tags_text: string;
   embedding_state: "pending" | "ready" | "failed" | "skipped";
   archived_at: number | null;
+  graph_refreshed_at: number | null;
   deleted_at: number | null;
   created_at: number;
   updated_at: number;
@@ -67,6 +68,11 @@ export interface Item {
 export interface SearchHit extends Item {
   score: number;
   matched: "lexical" | "semantic" | "both" | "recent";
+}
+
+export interface RelatedItem extends Item {
+  relation: "semantic" | "tag" | "link";
+  weight: number;
 }
 
 export interface SearchResponse {
@@ -218,6 +224,8 @@ export const api = {
     return request<{ items: Item[]; total: number; nextCursor: string | null }>(`/items?${qs}`);
   },
   item: (id: string) => request<{ item: Item }>(`/items/${id}`),
+  related: (id: string, limit = 6) =>
+    request<{ items: RelatedItem[] }>(`/items/${id}/related?limit=${limit}`),
   createItem: (input: {
     url?: string;
     title?: string;

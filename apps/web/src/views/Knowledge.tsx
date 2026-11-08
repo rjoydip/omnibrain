@@ -7,7 +7,7 @@ import {
   MenuTrigger,
   Tooltip,
 } from "@omnibrain/ui";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Atlas, type AtlasFilter } from "../components/Atlas";
 import { SourceGlyph } from "../components/SourceGlyph";
 import {
@@ -16,6 +16,7 @@ import {
   CloseIcon,
   EllipsisIcon,
   FilterIcon,
+  GraphIcon,
   GridIcon,
   ListIcon,
   RestoreIcon,
@@ -26,6 +27,10 @@ import { groupByDay, sourceMeta, timeLabel } from "../lib/format";
 import type { ItemLayout, ItemStatus, Theme } from "../lib/nav";
 
 const DAY = 86_400_000;
+
+const ItemGraph = lazy(() =>
+  import("../components/ItemGraph").then((m) => ({ default: m.ItemGraph })),
+);
 
 function KnowledgeItem({
   item,
@@ -190,6 +195,7 @@ export function Knowledge({
   total,
   selectedId,
   onSelect,
+  onCloseInspector,
   filter,
   onFilter,
   onOpenRecall,
@@ -214,6 +220,7 @@ export function Knowledge({
   total: number;
   selectedId: string | null;
   onSelect: (id: string) => void;
+  onCloseInspector: () => void;
   filter: AtlasFilter | null;
   onFilter: (filter: AtlasFilter | null) => void;
   onOpenRecall: () => void;
@@ -312,6 +319,18 @@ export function Knowledge({
                 }`}
               >
                 <GridIcon size={13} />
+              </button>
+            </Tooltip>
+            <Tooltip label="Graph view">
+              <button
+                type="button"
+                onClick={() => onLayout("graph")}
+                aria-pressed={layout === "graph"}
+                className={`grid size-6 place-items-center rounded-[5px] transition ${
+                  layout === "graph" ? "bg-panel text-accent" : "text-muted hover:text-text"
+                }`}
+              >
+                <GraphIcon size={13} />
               </button>
             </Tooltip>
           </div>
@@ -487,7 +506,25 @@ export function Knowledge({
         </div>
       ) : (
         <div>
-          {layout === "grid" ? (
+          {layout === "graph" ? (
+            <Suspense
+              fallback={
+                <div className="py-12 text-center font-mono text-[10px] uppercase tracking-wider text-faint">
+                  Loading graph…
+                </div>
+              }
+            >
+              <ItemGraph
+                items={filtered}
+                source={source}
+                selectedId={selectedId}
+                theme={theme}
+                onSelect={onSelect}
+                onSource={onSource}
+                onCloseInspector={onCloseInspector}
+              />
+            </Suspense>
+          ) : layout === "grid" ? (
             <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
               {filtered.map((item) => (
                 <KnowledgeItem
@@ -534,7 +571,7 @@ export function Knowledge({
             </div>
           )}
 
-          {hasMore ? (
+          {layout !== "graph" && hasMore ? (
             <div ref={loadMoreRef} className="flex justify-center pt-3">
               <button
                 type="button"

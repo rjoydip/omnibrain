@@ -53,9 +53,10 @@ export default function App() {
   const [atlasFilter, setAtlasFilter] = useState<AtlasFilter | null>(null);
   const [sourceFilter, setSourceFilter] = useState("all");
   const [itemStatus, setItemStatus] = useState<ItemStatus>("active");
-  const [itemLayout, setItemLayout] = useState<ItemLayout>(() =>
-    localStorage.getItem("omnibrain.itemLayout.v3") === "list" ? "list" : "grid",
-  );
+  const [itemLayout, setItemLayout] = useState<ItemLayout>(() => {
+    const stored = localStorage.getItem("omnibrain.itemLayout.v3");
+    return stored === "list" || stored === "graph" ? stored : "grid";
+  });
   const [knownSources, setKnownSources] = useState<string[]>([]);
 
   const [theme, setTheme] = useState<Theme>(initialTheme);
@@ -374,9 +375,8 @@ export default function App() {
                 items={items}
                 total={total}
                 selectedId={selectedId}
-                onSelect={(id) => {
-                  setSelectedId(id);
-                }}
+                onSelect={(id) => void openItem(id)}
+                onCloseInspector={() => setSelectedId(null)}
                 filter={atlasFilter}
                 onFilter={applyAtlasFilter}
                 source={sourceFilter}
@@ -455,6 +455,7 @@ export default function App() {
               onWidthChange={setPanelWidth}
               onDelete={deleteItem}
               onRetry={retryItem}
+              onOpenItem={(id) => void openItem(id)}
               onClose={() => setSelectedId(null)}
             />
           ) : null}

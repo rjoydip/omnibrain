@@ -198,6 +198,15 @@ export const CodeIcon = (p: IconProps) => (
   </Icon>
 );
 
+export const GraphIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <circle cx="12" cy="5" r="2.2" />
+    <circle cx="5" cy="18" r="2.2" />
+    <circle cx="19" cy="18" r="2.2" />
+    <path d="M10.5 7l-4 9M13.5 7l4 9M7.2 18h9.6" />
+  </Icon>
+);
+
 export const FilterIcon = (p: IconProps) => (
   <Icon {...p}>
     <path d="M4 5h16l-6.2 7.4v5.1l-3.6 1.8v-6.9z" />

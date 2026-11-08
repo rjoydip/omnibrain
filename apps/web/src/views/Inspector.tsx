@@ -1,6 +1,6 @@
 import { Badge, Button, Tooltip } from "@omnibrain/ui";
 import { isMarkdown } from "@omnibrain/core/markdown";
-import { lazy, Suspense, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import {
   ArrowUpRightIcon,
   CheckIcon,
@@ -14,7 +14,7 @@ import {
   WrapIcon,
 } from "../components/icons";
 import { NoteText } from "../components/NoteText";
-import type { Item } from "../lib/api";
+import { api, type Item, type RelatedItem } from "../lib/api";
 import { dayLabel, sourceMeta, timeLabel } from "../lib/format";
 
 const Markdown = lazy(() =>
@@ -42,6 +42,7 @@ export function Inspector({
   onWidthChange,
   onDelete,
   onRetry,
+  onOpenItem,
   onClose,
 }: {
   item: Item | null;
@@ -49,6 +50,7 @@ export function Inspector({
   onWidthChange: (width: number) => void;
   onDelete: (id: string) => Promise<void>;
   onRetry: (id: string) => Promise<void>;
+  onOpenItem: (id: string) => void;
   onClose: () => void;
 }) {
   const expanded = width >= 430;
@@ -59,6 +61,27 @@ export function Inspector({
   const [wrapText, setWrapText] = useState(true);
   const [copied, setCopied] = useState<string | null>(null);
   const dragRef = useRef<{ x: number; width: number } | null>(null);
+  const [related, setRelated] = useState<RelatedItem[]>([]);
+  const itemId = item?.id;
+
+  useEffect(() => {
+    if (!itemId) {
+      setRelated([]);
+      return;
+    }
+    let cancelled = false;
+    setRelated([]);
+    api
+      .related(itemId, 6)
+      .then((res) => {
+        if (!cancelled) setRelated(res.items);
+        return null;
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [itemId]);
 
   const rawNote = Boolean(item) && rawFor === item?.id;
 
@@ -259,6 +282,35 @@ export function Inspector({
                 #{tag}
               </span>
             ))}
+        </div>
+      ) : null}
+
+      {related.length > 0 ? (
+        <div>
+          <div className="mb-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-faint">
+            Related
+          </div>
+          <ul className="space-y-0.5">
+            {related.map((entry) => (
+              <li key={entry.id}>
+                <button
+                  type="button"
+                  onClick={() => onOpenItem(entry.id)}
+                  className="flex w-full items-center gap-2 rounded-[6px] px-2 py-1.5 text-left transition hover:bg-raised"
+                >
+                  <span className="grid size-5 shrink-0 place-items-center rounded-[5px] bg-raised font-mono text-[10px] text-accent">
+                    {entry.relation === "link" ? "↗" : entry.relation === "tag" ? "#" : "≈"}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate text-[12px] text-text">
+                    {entry.title}
+                  </span>
+                  <span className="shrink-0 font-mono text-[9px] uppercase tracking-wider text-faint">
+                    {entry.relation}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
         </div>
       ) : null}
 

@@ -78,16 +78,21 @@ Deletes the session row and clears the cookie.
 
 ## Items
 
-| Method | Path                 | Notes                                                |
-| ------ | -------------------- | ---------------------------------------------------- |
-| GET    | `/items`             | `?limit=1..100&cursor=&source=&kind=` — newest first |
-| POST   | `/items`             | Create/capture; body below                           |
-| POST   | `/items/batch`       | Up to 500 import items; optional `import_id`         |
-| GET    | `/items/:id`         | One item                                             |
-| PATCH  | `/items/:id`         | `title`, `summary`, `note`, `tags`                   |
-| DELETE | `/items/:id`         | Soft delete; purged after 30 days                    |
-| POST   | `/items/:id/retry`   | Re-run enrichment                                    |
-| GET    | `/items/:id/content` | R2 text, else excerpt, as `text/plain`               |
+| Method | Path                   | Notes                                                                |
+| ------ | ---------------------- | -------------------------------------------------------------------- |
+| GET    | `/items`               | `?limit=1..100&cursor=&source=&kind=&status=active\|archived\|trash` |
+| POST   | `/items`               | Create/capture; body below                                           |
+| POST   | `/items/batch`         | Up to 500 import items; optional `import_id`                         |
+| GET    | `/items/:id`           | One item                                                             |
+| PATCH  | `/items/:id`           | `title`, `summary`, `note`, `tags`                                   |
+| DELETE | `/items/:id`           | Soft delete; purged after 30 days                                    |
+| DELETE | `/items/:id/permanent` | Permanently delete a trashed item and its vectors                    |
+| POST   | `/items/:id/archive`   | Hide from the active stream                                          |
+| POST   | `/items/:id/unarchive` | Return to the active stream                                          |
+| POST   | `/items/:id/restore`   | Restore from trash                                                   |
+| GET    | `/items/:id/related`   | Graph neighbours: `?limit=1..12` (link, tag, semantic)               |
+| POST   | `/items/:id/retry`     | Re-run enrichment                                                    |
+| GET    | `/items/:id/content`   | R2 text, else excerpt, as `text/plain`                               |
 
 Create:
 
@@ -234,6 +239,7 @@ Tools use an `omnibrain_` namespace:
 | `omnibrain_fetch`     | `id`                                         | Full text (max 60 KB) |
 | `omnibrain_recent`    | `limit` (1–20)                               | Latest captures       |
 | `omnibrain_save_note` | `text`, `url?`, `tags?`                      | New item id           |
+| `omnibrain_related`   | `id`, `limit?` (1–12)                        | Related items         |
 
 Calls are metered per plan (`mcpCallsDay`) and every key use updates `last_used_at`. Responses are
 capped at 64 KB; tool errors are returned as `isError: true`, not JSON-RPC failures. Each request is

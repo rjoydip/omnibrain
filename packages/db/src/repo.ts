@@ -41,6 +41,18 @@ export interface ItemListOptions {
 }
 
 export type ItemStatus = "active" | "archived" | "trash";
+export type ItemEdgeKind = "semantic" | "tag" | "link";
+
+export interface ItemEdgeInput {
+  toItemId: string;
+  kind: ItemEdgeKind;
+  weight: number;
+}
+
+export interface RelatedItemRow extends ItemRow {
+  relation: ItemEdgeKind;
+  weight: number;
+}
 
 export interface ItemList {
   items: ItemRow[];
@@ -410,6 +422,128 @@ export async function purgeTrash(db: SqlClient, ws: string, olderThan: number): 
     ...list,
   ]);
   return vectors.map((v) => v.vector_id);
+}
+
+// ---------------------------------------------------------------- knowledge graph
+
+export async function replaceItemEdges(
+  db: SqlClient,
+  ws: string,
+  itemId: string,
+  edges: ItemEdgeInput[],
+): Promise<void> {
+  assertWorkspaceId(ws);
+  await db.run(
+    "delete from item_edges where workspace_id = ? and (from_item_id = ? or to_item_id = ?)",
+    [ws, itemId, itemId],
+  );
+  const now = Date.now();
+  for (const edge of edges.slice(0, 12)) {
+    if (edge.toItemId === itemId) continue;
+    const from = edge.toItemId < itemId ? edge.toItemId : itemId;
+    const to = edge.toItemId < itemId ? itemId : edge.toItemId;
+    await db.run(
+      `insert or replace into item_edges(
+        workspace_id, from_item_id, to_item_id, kind, weight, created_at
+      ) values(?,?,?,?,?,?)`,
+      [ws, from, to, edge.kind, edge.weight, now],
+    );
+  }
+  await db.run("update items set graph_refreshed_at = ? where id = ? and workspace_id = ?", [
+    now,
+    itemId,
+    ws,
+  ]);
+}
+
+export async function relatedItems(
+  db: SqlClient,
+  ws: string,
+  itemId: string,
+  limit = 6,
+): Promise<RelatedItemRow[]> {
+  assertWorkspaceId(ws);
+  const rows = await db.all<RelatedItemRow>(
+    `select i.*, e.kind as relation, e.weight
+     from item_edges e
+     join items i on i.id = case
+       when e.from_item_id = ? then e.to_item_id
+       else e.from_item_id
+     end
+     where e.workspace_id = ?
+       and (e.from_item_id = ? or e.to_item_id = ?)
+       and i.workspace_id = ?
+       and i.deleted_at is null
+       and i.archived_at is null
+     order by e.weight desc
+     limit ?`,
+    [itemId, ws, itemId, itemId, ws, Math.min(Math.max(limit * 3, 1), 60)],
+  );
+  const best = new Map<string, RelatedItemRow>();
+  for (const row of rows) {
+    const current = best.get(row.id);
+    if (!current || row.weight > current.weight) best.set(row.id, row);
+  }
+  return [...best.values()].slice(0, limit);
+}
+
+export interface TagNeighbor {
+  id: string;
+  overlap: number;
+  other_count: number;
+}
+
+export async function tagNeighbors(
+  db: SqlClient,
+  ws: string,
+  itemId: string,
+  limit = 12,
+): Promise<TagNeighbor[]> {
+  assertWorkspaceId(ws);
+  return db.all<TagNeighbor>(
+    `select b.item_id as id, count(*) as overlap,
+       (select count(*) from item_tags x where x.item_id = b.item_id) as other_count
+     from item_tags a
+     join item_tags b on b.tag_id = a.tag_id and b.workspace_id = a.workspace_id
+     join items i on i.id = b.item_id
+     where a.workspace_id = ?
+       and a.item_id = ?
+       and b.item_id != ?
+       and i.deleted_at is null
+       and i.archived_at is null
+     group by b.item_id
+     order by overlap desc
+     limit ?`,
+    [ws, itemId, itemId, limit],
+  );
+}
+
+export async function tagCount(db: SqlClient, ws: string, itemId: string): Promise<number> {
+  assertWorkspaceId(ws);
+  const row = await db.first<{ n: number }>(
+    "select count(*) as n from item_tags where workspace_id = ? and item_id = ?",
+    [ws, itemId],
+  );
+  return row?.n ?? 0;
+}
+
+export async function itemsByCanonicalUrls(
+  db: SqlClient,
+  ws: string,
+  urls: string[],
+): Promise<Array<{ id: string; canonical_url: string }>> {
+  assertWorkspaceId(ws);
+  const unique = [...new Set(urls)].slice(0, 50);
+  if (unique.length === 0) return [];
+  const placeholders = unique.map(() => "?").join(",");
+  return db.all<{ id: string; canonical_url: string }>(
+    `select id, canonical_url from items
+     where workspace_id = ?
+       and canonical_url in (${placeholders})
+       and deleted_at is null
+       and archived_at is null`,
+    [ws, ...unique],
+  );
 }
 
 // ---------------------------------------------------------------- auth + users
@@ -1232,6 +1366,12 @@ export function forWorkspace(db: SqlClient, workspaceId: string) {
     exportWorkspace: () => exportWorkspace(db, workspaceId),
     purgeTrash: (olderThan: number) => purgeTrash(db, workspaceId, olderThan),
     purgeItem: (id: string) => purgeItem(db, workspaceId, id),
+    replaceItemEdges: (itemId: string, edges: ItemEdgeInput[]) =>
+      replaceItemEdges(db, workspaceId, itemId, edges),
+    relatedItems: (itemId: string, limit?: number) => relatedItems(db, workspaceId, itemId, limit),
+    tagNeighbors: (itemId: string, limit?: number) => tagNeighbors(db, workspaceId, itemId, limit),
+    tagCount: (itemId: string) => tagCount(db, workspaceId, itemId),
+    itemsByCanonicalUrls: (urls: string[]) => itemsByCanonicalUrls(db, workspaceId, urls),
     listConnections: () => listConnections(db, workspaceId),
     getConnection: (id: string) => getConnection(db, workspaceId, id),
     upsertConnection: (input: Parameters<typeof upsertConnection>[2]) =>
