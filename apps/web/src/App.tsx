@@ -18,7 +18,7 @@ const NoteCapture = lazy(() =>
 );
 
 const THEME_ORDER: Theme[] = ["ink", "paper", "contrast"];
-const ACCENT_IDS = new Set<Accent>(["cobalt", "amber", "mint", "coral", "violet", "slate"]);
+const ACCENT_IDS = new Set<Accent>(["cobalt", "amber", "mint", "rose", "violet", "cyan"]);
 const VIEWS = new Set<View>(["knowledge", "apps", "import", "mcp", "settings"]);
 
 function initialView(): View {

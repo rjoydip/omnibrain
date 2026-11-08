@@ -83,9 +83,9 @@ export const ACCENT_SWATCHES: Record<string, string> = {
   cobalt: "var(--a-cobalt)",
   amber: "var(--a-amber)",
   mint: "var(--a-mint)",
-  coral: "var(--a-coral)",
+  rose: "var(--a-rose)",
   violet: "var(--a-violet)",
-  slate: "var(--a-slate)",
+  cyan: "var(--a-cyan)",
 };
 
 export function relativeTime(ts: number | null): string {

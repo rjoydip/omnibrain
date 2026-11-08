@@ -106,10 +106,13 @@ function KnowledgeItem({
   );
 
   const labels = (
-    <div className="mt-1 flex flex-wrap items-center gap-2">
-      <span className="font-mono text-[10px] text-faint">{meta.label}</span>
+    <div className="mt-1 flex flex-wrap items-center gap-1.5">
+      {tags.length > 0 ? <span className="font-mono text-[10px] text-faint">Tags:</span> : null}
       {tags.map((tag) => (
-        <span key={tag} className="font-mono text-[10px] text-accent">
+        <span
+          key={tag}
+          className="rounded bg-raised px-1.5 py-0.5 font-mono text-[10px] text-accent"
+        >
           #{tag}
         </span>
       ))}
@@ -169,10 +172,15 @@ function KnowledgeItem({
       <button
         type="button"
         onClick={() => onSelect(item.id)}
-        className="flex min-w-0 flex-1 gap-2.5 text-left"
+        className="flex min-w-0 flex-1 items-start gap-3 text-left"
       >
-        <div className="source-tile mt-0.5 text-accent">
-          <SourceGlyph id={item.source} size={12} />
+        <div className="flex w-10 shrink-0 flex-col items-center gap-1">
+          <div className="source-tile text-accent">
+            <SourceGlyph id={item.source} size={12} />
+          </div>
+          <span className="line-clamp-2 w-full text-center font-mono text-[8.5px] leading-[1.15] text-faint">
+            {meta.label}
+          </span>
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline justify-between gap-3">

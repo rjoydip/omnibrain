@@ -304,9 +304,6 @@ export function Inspector({
                   <span className="min-w-0 flex-1 truncate text-[12px] text-text">
                     {entry.title}
                   </span>
-                  <span className="shrink-0 font-mono text-[9px] uppercase tracking-wider text-faint">
-                    {entry.relation}
-                  </span>
                 </button>
               </li>
             ))}

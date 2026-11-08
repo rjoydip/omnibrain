@@ -302,7 +302,7 @@ export function SettingsView({
             }}
             className="group flex items-center gap-3 rounded-[var(--radius)] bg-raised/60 p-3 text-left transition hover:bg-raised"
           >
-            <span className="grid size-8 shrink-0 place-items-center rounded-[6px] bg-panel text-muted">
+            <span className="grid size-8 shrink-0 place-items-center rounded-[6px] bg-panel text-accent">
               <LockIcon size={15} />
             </span>
             <span className="min-w-0 flex-1">
