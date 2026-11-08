@@ -109,7 +109,7 @@ function KnowledgeItem({
     <div className="mt-1 flex flex-wrap items-center gap-2">
       <span className="font-mono text-[10px] text-faint">{meta.label}</span>
       {tags.map((tag) => (
-        <span key={tag} className="font-mono text-[10px] text-faint">
+        <span key={tag} className="font-mono text-[10px] text-accent">
           #{tag}
         </span>
       ))}

@@ -41,11 +41,41 @@ function sourceColor(colorIndex: number, colors: string[]): string {
   return colors[colorIndex % colors.length] ?? colors[0] ?? "#7db4ff";
 }
 
+/** Nine lightness variants of the active accent, so each source group differs. */
+function clampLightness(value: number): number {
+  return Math.min(0.94, Math.max(0.28, value));
+}
+
+function accentShades(accent: string): string[] {
+  const offsets = [-0.24, -0.18, -0.12, -0.06, 0, 0.06, 0.12, 0.18, 0.24];
+  const oklch = /^oklch\(\s*([\d.]+)\s+([\d.]+)\s+([\d.]+)/i.exec(accent);
+  if (oklch) {
+    const l = Number(oklch[1]);
+    const c = Number(oklch[2]);
+    const h = Number(oklch[3]);
+    return offsets.map((delta) => `oklch(${clampLightness(l + delta).toFixed(3)} ${c} ${h})`);
+  }
+  const hex = /^#([0-9a-f]{6})$/i.exec(accent);
+  if (hex) {
+    const raw = hex[1] ?? "7db4ff";
+    const channels = [0, 2, 4].map((index) => Number.parseInt(raw.slice(index, index + 2), 16));
+    return [0.45, 0.62, 0.78, 0.9, 1, 1.1, 1.22, 1.35, 1.5].map((factor) => {
+      const rgb = channels.map((channel) =>
+        factor <= 1
+          ? Math.round(channel * factor)
+          : Math.round(channel + (255 - channel) * (factor - 1)),
+      );
+      return `rgb(${rgb.join(" ")})`;
+    });
+  }
+  return offsets.map(() => accent);
+}
+
 /** Stable palette slot per source, independent of the current filter or sort order. */
 function sourceColorIndex(source: string): number {
   let hash = 0;
   for (let i = 0; i < source.length; i++) hash = (hash * 31 + source.charCodeAt(i)) >>> 0;
-  return hash % 5;
+  return hash % 9;
 }
 
 function truncate(text: string, max: number): string {
@@ -143,13 +173,7 @@ export function ItemGraph({
     const styles = getComputedStyle(document.documentElement);
     const color = (name: string, fallback: string) =>
       styles.getPropertyValue(name).trim() || fallback;
-    const colors = [
-      color("--accent", "#7db4ff"),
-      color("--cobalt", "#7db4ff"),
-      color("--mint", "#5dffb0"),
-      color("--coral", "#ff7b6b"),
-      color("--signal", "#ffd400"),
-    ];
+    const colors = accentShades(color("--accent", "#7db4ff"));
     const paper = theme === "paper";
     const text = color("--text", paper ? "#111" : "#eee");
     const faint = color("--faint", paper ? "#666" : "#777");

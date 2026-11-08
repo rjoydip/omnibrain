@@ -4,7 +4,6 @@ import type { AtlasFilter } from "./components/Atlas";
 import { Recall } from "./components/Recall";
 import { BootSplash, MobileNav, Rail, TopBar } from "./components/Shell";
 import { type Account, ApiError, api, type Item, type Me } from "./lib/api";
-import { sourceMeta } from "./lib/format";
 import type { Accent, ItemLayout, ItemStatus, Theme, View } from "./lib/nav";
 import { AppsView } from "./views/Apps";
 import { AuthScreen } from "./views/Auth";
@@ -314,16 +313,7 @@ export default function App() {
   const selectSource = (source: string) => {
     setSourceFilter(source);
     setView("knowledge");
-    if (source === "all") {
-      setAtlasFilter(null);
-      return;
-    }
-    setAtlasFilter({
-      start: 0,
-      end: Date.now() + 3650 * 86_400_000,
-      sources: [source],
-      label: `${sourceMeta(source).label} · all time`,
-    });
+    setAtlasFilter(null);
   };
 
   const applyAtlasFilter = (filter: AtlasFilter | null) => {
