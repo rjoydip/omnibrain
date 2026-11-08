@@ -9,6 +9,7 @@ import {
   CopyIcon,
   EyeIcon,
   RefreshIcon,
+  RestoreIcon,
   SparkIcon,
   TrashIcon,
   WrapIcon,
@@ -42,6 +43,7 @@ export function Inspector({
   onWidthChange,
   onDelete,
   onRetry,
+  onRestore,
   onOpenItem,
   onClose,
 }: {
@@ -50,6 +52,7 @@ export function Inspector({
   onWidthChange: (width: number) => void;
   onDelete: (id: string) => Promise<void>;
   onRetry: (id: string) => Promise<void>;
+  onRestore: (id: string) => Promise<void>;
   onOpenItem: (id: string) => void;
   onClose: () => void;
 }) {
@@ -358,6 +361,23 @@ export function Inspector({
           <RefreshIcon size={12} />
           Re-enrich
         </Button>
+        {item.deleted_at ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            disabled={busy}
+            className="text-accent"
+            onClick={async () => {
+              setBusy(true);
+              await onRestore(item.id);
+              setBusy(false);
+            }}
+          >
+            <RestoreIcon size={12} />
+            Restore
+          </Button>
+        ) : null}
 
         {confirm ? (
           <span className="ml-auto flex items-center gap-1.5">
@@ -412,7 +432,7 @@ export function Inspector({
       <aside
         style={{ width }}
         className={`relative hidden max-w-[62vw] shrink-0 flex-col bg-panel lg:flex ${
-          resizing ? "" : "transition-[width] duration-150"
+          resizing ? "" : "inspector-spring"
         }`}
       >
         <div

@@ -7,7 +7,7 @@ import {
   MenuTrigger,
   Tooltip,
 } from "@omnibrain/ui";
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, memo, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Atlas, type AtlasFilter } from "../components/Atlas";
 import { SourceGlyph } from "../components/SourceGlyph";
 import {
@@ -32,7 +32,7 @@ const ItemGraph = lazy(() =>
   import("../components/ItemGraph").then((m) => ({ default: m.ItemGraph })),
 );
 
-function KnowledgeItem({
+function KnowledgeItemBase({
   item,
   layout,
   status,
@@ -57,73 +57,91 @@ function KnowledgeItem({
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const meta = sourceMeta(item.source);
-  const tags = item.tags_text.split(" ").filter(Boolean).slice(0, 3);
   const excerpt = item.summary ?? item.excerpt ?? "No text extracted yet.";
 
-  const menu = (
-    <Menu open={menuOpen} onOpenChange={setMenuOpen}>
-      <MenuTrigger asChild>
-        <button
-          type="button"
-          aria-label={`Actions for ${item.title}`}
-          className="grid size-6 shrink-0 place-items-center rounded-[6px] text-faint opacity-60 transition hover:bg-raised hover:text-text focus-visible:opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
-        >
-          <EllipsisIcon size={14} />
-        </button>
-      </MenuTrigger>
-      <MenuContent>
-        <MenuItem onSelect={() => onSelect(item.id)}>
-          <ArrowUpRightIcon size={12} className="text-accent" />
-          Open
-        </MenuItem>
-        {status === "trash" ? (
-          <>
-            <MenuItem onSelect={() => onRestore(item.id)}>
-              <RestoreIcon size={12} className="text-accent" />
-              Restore
-            </MenuItem>
-            <MenuItem onSelect={() => onPurge(item.id)} className="text-coral">
-              <TrashIcon size={12} />
-              Delete forever
-            </MenuItem>
-          </>
-        ) : (
-          <>
-            <MenuItem
-              onSelect={() => (status === "archived" ? onUnarchive(item.id) : onArchive(item.id))}
-            >
-              <ArchiveIcon size={12} className="text-accent" />
-              {status === "archived" ? "Unarchive" : "Archive"}
-            </MenuItem>
-            <MenuItem onSelect={() => onTrash(item.id)}>
-              <TrashIcon size={12} className="text-coral" />
-              Move to trash
-            </MenuItem>
-          </>
-        )}
-      </MenuContent>
-    </Menu>
+  const menu = useMemo(
+    () => (
+      <Menu open={menuOpen} onOpenChange={setMenuOpen}>
+        <MenuTrigger asChild>
+          <button
+            type="button"
+            aria-label={`Actions for ${item.title}`}
+            className="grid size-6 shrink-0 place-items-center rounded-[6px] text-faint opacity-60 transition hover:bg-raised hover:text-text focus-visible:opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
+          >
+            <EllipsisIcon size={14} />
+          </button>
+        </MenuTrigger>
+        <MenuContent>
+          <MenuItem onSelect={() => onSelect(item.id)}>
+            <ArrowUpRightIcon size={12} className="text-accent" />
+            Open
+          </MenuItem>
+          {status === "trash" ? (
+            <>
+              <MenuItem onSelect={() => onRestore(item.id)}>
+                <RestoreIcon size={12} className="text-accent" />
+                Restore
+              </MenuItem>
+              <MenuItem onSelect={() => onPurge(item.id)} className="text-coral">
+                <TrashIcon size={12} />
+                Delete forever
+              </MenuItem>
+            </>
+          ) : (
+            <>
+              <MenuItem
+                onSelect={() => (status === "archived" ? onUnarchive(item.id) : onArchive(item.id))}
+              >
+                <ArchiveIcon size={12} className="text-accent" />
+                {status === "archived" ? "Unarchive" : "Archive"}
+              </MenuItem>
+              <MenuItem onSelect={() => onTrash(item.id)}>
+                <TrashIcon size={12} className="text-coral" />
+                Move to trash
+              </MenuItem>
+            </>
+          )}
+        </MenuContent>
+      </Menu>
+    ),
+    [
+      item.id,
+      item.title,
+      status,
+      menuOpen,
+      onSelect,
+      onArchive,
+      onUnarchive,
+      onTrash,
+      onRestore,
+      onPurge,
+    ],
   );
 
-  const labels = (
-    <div className="mt-1 flex flex-wrap items-center gap-1.5">
-      {tags.length > 0 ? <span className="font-mono text-[10px] text-faint">Tags:</span> : null}
-      {tags.map((tag) => (
-        <span
-          key={tag}
-          className="rounded bg-raised px-1.5 py-0.5 font-mono text-[10px] text-accent"
-        >
-          #{tag}
-        </span>
-      ))}
-      {item.archived_at ? (
-        <span className="font-mono text-[9px] uppercase tracking-wider text-accent">archived</span>
-      ) : null}
-      {item.deleted_at ? (
-        <span className="font-mono text-[9px] uppercase tracking-wider text-coral">trash</span>
-      ) : null}
-    </div>
-  );
+  const labels = useMemo(() => {
+    const tags = item.tags_text.split(" ").filter(Boolean).slice(0, 3);
+    return (
+      <div className="mt-1 flex flex-wrap items-center gap-1.5">
+        {tags.length > 0 ? <span className="font-mono text-[10px] text-faint">Tags:</span> : null}
+        {tags.map((tag) => (
+          <span
+            key={tag}
+            className="rounded bg-raised px-1.5 py-0.5 font-mono text-[10px] text-accent"
+          >
+            #{tag}
+          </span>
+        ))}
+        {item.archived_at ? (
+          <span className="font-mono text-[9px] uppercase tracking-wider text-accent">
+            archived
+          </span>
+        ) : null}
+        {item.deleted_at ? (
+          <span className="font-mono text-[9px] uppercase tracking-wider text-coral">trash</span>
+        ) : null}
+      </div>
+    );
+  }, [item.tags_text, item.archived_at, item.deleted_at]);
 
   if (layout === "grid") {
     return (
@@ -197,6 +215,8 @@ function KnowledgeItem({
     </div>
   );
 }
+
+const KnowledgeItem = memo(KnowledgeItemBase);
 
 export function Knowledge({
   items,

@@ -1,6 +1,13 @@
 import type { ItemStatus } from "./nav";
 
 const BASE = ((import.meta.env.VITE_API_URL as string | undefined) ?? "").replace(/\/$/, "");
+const CSRF_COOKIE = "omnibrain_csrf";
+
+/** Double-submit token: readable cookie, echoed in a header on every mutation. */
+function csrfHeader(): Record<string, string> {
+  const match = document.cookie.match(new RegExp(`(?:^|;\\s*)${CSRF_COOKIE}=([^;]+)`));
+  return match ? { "x-csrf-token": decodeURIComponent(match[1] ?? "") } : {};
+}
 
 export class ApiError extends Error {
   constructor(
@@ -14,19 +21,29 @@ export class ApiError extends Error {
 
 async function request<T>(
   path: string,
-  init: { method?: string; body?: unknown; headers?: Record<string, string> } = {},
+  init: {
+    method?: string;
+    body?: unknown;
+    headers?: Record<string, string>;
+    signal?: AbortSignal;
+  } = {},
 ): Promise<T> {
-  const headers: Record<string, string> = { ...init.headers };
+  const method = init.method ?? "GET";
+  const headers: Record<string, string> = {
+    ...init.headers,
+    ...(method === "GET" || method === "HEAD" ? {} : csrfHeader()),
+  };
   let body: BodyInit | undefined;
   if (init.body !== undefined) {
     headers["content-type"] = "application/json";
     body = JSON.stringify(init.body);
   }
   const res = await fetch(`${BASE}/api/v1${path}`, {
-    method: init.method ?? "GET",
+    method,
     credentials: "include",
     headers,
     body,
+    signal: init.signal,
   });
   const text = await res.text();
   const data = text ? (JSON.parse(text) as unknown) : null;
@@ -218,10 +235,13 @@ export const api = {
       cursor?: string;
       status?: ItemStatus;
     } = {},
+    signal?: AbortSignal,
   ) => {
     const qs = new URLSearchParams();
     for (const [k, v] of Object.entries(params)) if (v !== undefined) qs.set(k, String(v));
-    return request<{ items: Item[]; total: number; nextCursor: string | null }>(`/items?${qs}`);
+    return request<{ items: Item[]; total: number; nextCursor: string | null }>(`/items?${qs}`, {
+      signal,
+    });
   },
   item: (id: string) => request<{ item: Item }>(`/items/${id}`),
   related: (id: string, limit = 6) =>
@@ -252,7 +272,7 @@ export const api = {
     kind?: string;
   }) => request<SearchResponse>("/search", { method: "POST", body: input }),
 
-  account: () => request<Account>("/account"),
+  account: (signal?: AbortSignal) => request<Account>("/account", { signal }),
   changePlan: (plan: "free" | "pro" | "team") =>
     request<{ ok: boolean; plan: string }>("/plan", {
       method: "PATCH",

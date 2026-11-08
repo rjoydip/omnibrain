@@ -45,15 +45,18 @@ async function login(
     env,
   );
   expect(verify.status).toBe(200);
-  const cookie = verify.headers.get("set-cookie");
-  expect(cookie).toContain("ob_session=");
-  return cookie?.split(";")[0] ?? "";
+  const setCookies = verify.headers.getSetCookie();
+  const header = setCookies.map((value) => value.split(";")[0]).join("; ");
+  expect(header).toContain("ob_session=");
+  expect(header).toContain("omnibrain_csrf=");
+  return header;
 }
 
 const json = (cookie: string) => ({
   "content-type": "application/json",
   origin: ORIGIN,
   cookie,
+  "x-csrf-token": /omnibrain_csrf=([^;]+)/.exec(cookie)?.[1] ?? "",
 });
 
 describe("api", () => {
@@ -315,6 +318,21 @@ describe("api", () => {
         method: "POST",
         headers: { "content-type": "application/json", origin: "https://evil.example" },
         body: JSON.stringify({ email: "a@example.com" }),
+      },
+      env,
+    );
+    expect(res.status).toBe(403);
+  });
+
+  test("mutation without a CSRF token is rejected", async () => {
+    const { app, env } = harness();
+    const cookie = await login(app, env);
+    const res = await app.request(
+      "/api/v1/items",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json", origin: ORIGIN, cookie },
+        body: JSON.stringify({ title: "csrf check" }),
       },
       env,
     );

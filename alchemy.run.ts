@@ -27,6 +27,7 @@ export default Alchemy.Stack(
       dimensions: 1024,
       metric: "cosine",
     });
+    const email = yield* Cloudflare.Email.SendEmail("Email");
 
     const api = yield* Cloudflare.Worker("Api", {
       main: "./apps/api/src/worker.ts",
@@ -43,8 +44,8 @@ export default Alchemy.Stack(
         X_CLIENT_SECRET: process.env.X_CLIENT_SECRET ?? "",
         RAINDROP_CLIENT_ID: process.env.RAINDROP_CLIENT_ID ?? "",
         RAINDROP_CLIENT_SECRET: process.env.RAINDROP_CLIENT_SECRET ?? "",
-        RESEND_KEY: process.env.RESEND_KEY ?? "",
-        RESEND_FROM: process.env.RESEND_FROM ?? "OmniBrain <onboarding@resend.dev>",
+        EMAIL: email,
+        EMAIL_FROM: process.env.EMAIL_FROM ?? "OmniBrain <no-reply@omnibrain.ai>",
       },
     });
 

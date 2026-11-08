@@ -4,6 +4,18 @@ Base URL: `/api/v1` (MCP at `/mcp`). All payloads are JSON. Auth is the `ob_sess
 cookie set by `POST /auth/verify`. Workspace-scoped routes accept `x-workspace-id`; without it the
 user's first workspace is used, and a workspace the user is not a member of returns 403.
 
+## Headers and CSRF
+
+Every response includes `x-request-id`. API responses also set HSTS, `X-Frame-Options: DENY`,
+`Cross-Origin-Opener-Policy: same-origin` and a strict JSON CSP.
+
+`/api/v1/*` responses set a readable `omnibrain_csrf` cookie. Any `POST`, `PATCH` or `DELETE` to a
+protected route must send it back as `x-csrf-token`; otherwise the request returns
+`403 forbidden`. Browser tabs are also accepted when they report
+`Sec-Fetch-Site: same-origin|same-site`. The SPA client handles this automatically.
+
+Writes are limited to 120 per minute per workspace+user (`429 rate_limited`); reads are unmetered.
+
 ## Errors
 
 ```json
@@ -21,15 +33,15 @@ user's first workspace is used, and a workspace the user is not a member of retu
 | -------------------------- | ------ | ------------------------------------------------------------- |
 | `bad_request`              | 400    | Validation failed or unsafe request                           |
 | `unauthorized`             | 401    | No/invalid session or OTP                                     |
-| `forbidden`                | 403    | Role or workspace membership denied, or cross-origin mutation |
+| `forbidden`                | 403    | Role/workspace denied, CSRF failure, or cross-origin mutation |
 | `not_found`                | 404    | Missing item/connection/import                                |
 | `conflict`                 | 409    | Import already finished                                       |
-| `rate_limited`             | 429    | Per-IP/user/window limit                                      |
+| `rate_limited`             | 429    | Per-IP/user window, OTP cooldown, or write budget             |
 | `quota_exceeded`           | 402    | Plan entitlement exhausted                                    |
+| `email_failed`             | 502    | Email provider rejected the message                           |
+| `email_not_configured`     | 503    | `EMAIL` binding missing                                       |
 | `connector_not_configured` | 400    | OAuth client credentials missing                              |
 | `internal`                 | 500    | Unexpected failure; details are logged, not returned          |
-
-Every response includes `x-request-id` (also in errors).
 
 ## Auth
 
@@ -52,12 +64,12 @@ send email:
 }
 ```
 
-Production always emails the code through Resend and never returns `dev_code`. If `RESEND_KEY` is
-missing the request fails with `503 email_not_configured`; a provider failure returns
-`502 email_failed`.
+Production always emails the code through Cloudflare Email Service and never returns `dev_code`. If
+the `EMAIL` binding is missing the request fails with `503 email_not_configured`; a provider failure
+returns `502 email_failed`.
 
-Codes expire in 10 minutes and lock after 5 wrong attempts. Rate limit: 5 requests per email per 10
-minutes (50 in dev).
+Codes expire in 10 minutes and lock after 5 wrong attempts. Rate limits: one email per address per
+minute (durable), 5 requests per email per 10 minutes (50 in dev), and 10 per IP per 10 minutes.
 
 ### `POST /auth/verify`
 

@@ -1,17 +1,18 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { toast as notch } from "notch-toast";
 import type { AtlasFilter } from "./components/Atlas";
 import { Recall } from "./components/Recall";
-import { BootSplash, MobileNav, Rail, TopBar } from "./components/Shell";
+import { BootSplash, MobileNav, Rail, SectionLoading, TopBar } from "./components/Shell";
 import { type Account, ApiError, api, type Item, type Me } from "./lib/api";
 import type { Accent, ItemLayout, ItemStatus, Theme, View } from "./lib/nav";
-import { AppsView } from "./views/Apps";
 import { AuthScreen } from "./views/Auth";
-import { ImportView } from "./views/Import";
 import { Inspector } from "./views/Inspector";
 import { Knowledge } from "./views/Knowledge";
 import { SettingsView } from "./views/Settings";
 
+const AppsView = lazy(() => import("./views/Apps").then((m) => ({ default: m.AppsView })));
+const ImportView = lazy(() => import("./views/Import").then((m) => ({ default: m.ImportView })));
 const McpView = lazy(() => import("./views/Mcp").then((m) => ({ default: m.McpView })));
 const NoteCapture = lazy(() =>
   import("./components/NoteCapture").then((m) => ({ default: m.NoteCapture })),
@@ -20,10 +21,46 @@ const NoteCapture = lazy(() =>
 const THEME_ORDER: Theme[] = ["ink", "paper", "contrast"];
 const ACCENT_IDS = new Set<Accent>(["cobalt", "amber", "mint", "rose", "violet", "cyan"]);
 const VIEWS = new Set<View>(["knowledge", "apps", "import", "mcp", "settings"]);
+const STATUSES = new Set<ItemStatus>(["active", "archived", "trash"]);
+const LAYOUTS = new Set<ItemLayout>(["list", "grid", "graph"]);
+
+function urlParams(): URLSearchParams {
+  return new URLSearchParams(window.location.search);
+}
+
+function isAbort(err: unknown): boolean {
+  return err instanceof Error && err.name === "AbortError";
+}
+
+/** Atlas selection encoded as fstart/fend/flabel/fsrc so a filtered view is shareable. */
+function readFilter(params: URLSearchParams): AtlasFilter | null {
+  if (!params.has("fstart") || !params.has("fend")) return null;
+  const start = Number(params.get("fstart"));
+  const end = Number(params.get("fend"));
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
+  const sources = params.get("fsrc")?.split(",").filter(Boolean);
+  return {
+    start,
+    end,
+    label: params.get("flabel") ?? "Custom range",
+    ...(sources?.length ? { sources } : {}),
+  };
+}
 
 function initialView(): View {
+  const fromUrl = urlParams().get("view");
+  if (VIEWS.has(fromUrl as View)) return fromUrl as View;
   const stored = localStorage.getItem("omnibrain.view.v2");
   return VIEWS.has(stored as View) ? (stored as View) : "knowledge";
+}
+
+function initialStatus(): ItemStatus {
+  const fromUrl = urlParams().get("status");
+  return STATUSES.has(fromUrl as ItemStatus) ? (fromUrl as ItemStatus) : "active";
+}
+
+function initialSource(): string {
+  return urlParams().get("source") ?? "all";
 }
 
 function initialTheme(): Theme {
@@ -42,6 +79,7 @@ export default function App() {
   const [bootError, setBootError] = useState<string | null>(null);
 
   const [items, setItems] = useState<Item[]>([]);
+  const [itemsLoading, setItemsLoading] = useState(true);
   const [total, setTotal] = useState(0);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -49,12 +87,14 @@ export default function App() {
 
   const [view, setView] = useState<View>(initialView);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [atlasFilter, setAtlasFilter] = useState<AtlasFilter | null>(null);
-  const [sourceFilter, setSourceFilter] = useState("all");
-  const [itemStatus, setItemStatus] = useState<ItemStatus>("active");
+  const [atlasFilter, setAtlasFilter] = useState<AtlasFilter | null>(() => readFilter(urlParams()));
+  const [sourceFilter, setSourceFilter] = useState(initialSource);
+  const [itemStatus, setItemStatus] = useState<ItemStatus>(initialStatus);
   const [itemLayout, setItemLayout] = useState<ItemLayout>(() => {
+    const fromUrl = urlParams().get("layout");
+    if (LAYOUTS.has(fromUrl as ItemLayout)) return fromUrl as ItemLayout;
     const stored = localStorage.getItem("omnibrain.itemLayout.v3");
-    return stored === "list" || stored === "graph" ? stored : "grid";
+    return LAYOUTS.has(stored as ItemLayout) ? (stored as ItemLayout) : "grid";
   });
   const [knownSources, setKnownSources] = useState<string[]>([]);
 
@@ -68,6 +108,9 @@ export default function App() {
   const [recallSeed, setRecallSeed] = useState("");
   const [noteOpen, setNoteOpen] = useState(false);
   const [importPreferred, setImportPreferred] = useState<string | null>(null);
+  const refreshAbort = useRef<AbortController | null>(null);
+  const lastStatus = useRef<ItemStatus>(itemStatus);
+  const urlSynced = useRef(false);
 
   const toast = useCallback((message: string, tone: "ok" | "error" = "ok") => {
     if (tone === "error") {
@@ -99,6 +142,65 @@ export default function App() {
     localStorage.setItem("omnibrain.itemLayout.v3", itemLayout);
   }, [itemLayout]);
 
+  // The URL is the shareable source of truth for view/filters; history keeps back/forward working.
+  useEffect(() => {
+    const params = new URLSearchParams();
+    if (view !== "knowledge") params.set("view", view);
+    if (itemStatus !== "active") params.set("status", itemStatus);
+    if (sourceFilter !== "all") params.set("source", sourceFilter);
+    if (itemLayout !== "grid") params.set("layout", itemLayout);
+    if (atlasFilter) {
+      params.set("fstart", String(atlasFilter.start));
+      params.set("fend", String(atlasFilter.end));
+      params.set("flabel", atlasFilter.label);
+      if (atlasFilter.sources?.length) params.set("fsrc", atlasFilter.sources.join(","));
+    }
+    const qs = params.toString();
+    const next = `${window.location.pathname}${qs ? `?${qs}` : ""}${window.location.hash}`;
+    const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    if (next !== current) {
+      // Normalize the incoming URL without adding a history entry; later changes are navigations.
+      if (urlSynced.current) window.history.pushState(null, "", next);
+      else window.history.replaceState(null, "", next);
+    }
+    urlSynced.current = true;
+  }, [view, itemStatus, sourceFilter, itemLayout, atlasFilter]);
+
+  useEffect(() => {
+    const onPop = () => {
+      const params = urlParams();
+      const nextView = params.get("view");
+      setView(VIEWS.has(nextView as View) ? (nextView as View) : "knowledge");
+      const nextStatus = params.get("status");
+      setItemStatus(STATUSES.has(nextStatus as ItemStatus) ? (nextStatus as ItemStatus) : "active");
+      setSourceFilter(params.get("source") ?? "all");
+      const nextLayout = params.get("layout");
+      setItemLayout(LAYOUTS.has(nextLayout as ItemLayout) ? (nextLayout as ItemLayout) : "grid");
+      setAtlasFilter(readFilter(params));
+      setSelectedId(null);
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
+  const navigate = useCallback(
+    (next: View) => {
+      if (next === view) return;
+      const doc = document as Document & {
+        startViewTransition?: (callback: () => void) => unknown;
+      };
+      if (
+        !doc.startViewTransition ||
+        window.matchMedia("(prefers-reduced-motion: reduce)").matches
+      ) {
+        setView(next);
+        return;
+      }
+      doc.startViewTransition(() => flushSync(() => setView(next)));
+    },
+    [view],
+  );
+
   const bootMe = useCallback(async () => {
     setBoot("loading");
     setBootError(null);
@@ -122,29 +224,52 @@ export default function App() {
   }, [bootMe]);
 
   const refresh = useCallback(async () => {
-    const [list, acct] = await Promise.all([
-      api.items({ limit: 100, status: itemStatus }),
-      api.account(),
-    ]);
-    setItems(list.items);
-    setTotal(list.total);
-    setNextCursor(list.nextCursor);
-    setKnownSources((prev) => {
-      const next = new Set(prev);
-      for (const item of list.items) next.add(item.source);
-      return next.size === prev.length ? prev : [...next];
-    });
-    setAccount(acct);
-    setMe((prev) =>
-      prev && prev.workspace.plan !== acct.workspace.plan
-        ? { ...prev, workspace: { ...prev.workspace, plan: acct.workspace.plan } }
-        : prev,
-    );
+    refreshAbort.current?.abort();
+    const controller = new AbortController();
+    refreshAbort.current = controller;
+    setItemsLoading(true);
+    // A status switch must not show the previous bucket while the new one loads.
+    if (lastStatus.current !== itemStatus) {
+      lastStatus.current = itemStatus;
+      setItems([]);
+      setTotal(0);
+      setNextCursor(null);
+    }
+    try {
+      const [list, acct] = await Promise.all([
+        api.items({ limit: 100, status: itemStatus }, controller.signal),
+        api.account(controller.signal),
+      ]);
+      if (controller.signal.aborted) return;
+      setItems(list.items);
+      setTotal(list.total);
+      setNextCursor(list.nextCursor);
+      setKnownSources((prev) => {
+        const next = new Set(prev);
+        for (const item of list.items) next.add(item.source);
+        return next.size === prev.length ? prev : [...next];
+      });
+      setAccount(acct);
+      setMe((prev) =>
+        prev && prev.workspace.plan !== acct.workspace.plan
+          ? { ...prev, workspace: { ...prev.workspace, plan: acct.workspace.plan } }
+          : prev,
+      );
+    } catch (err) {
+      if (isAbort(err)) return;
+      throw err;
+    } finally {
+      if (refreshAbort.current === controller) {
+        refreshAbort.current = null;
+        setItemsLoading(false);
+      }
+    }
   }, [itemStatus]);
 
   useEffect(() => {
     if (!me) return;
     void refresh().catch((err) => {
+      if (isAbort(err)) return;
       if (err instanceof ApiError && err.status === 401) {
         setMe(null);
       } else {
@@ -182,7 +307,7 @@ export default function App() {
   const openItem = useCallback(
     async (id: string) => {
       setSelectedId(id);
-      setView("knowledge");
+      navigate("knowledge");
       if (!items.some((item) => item.id === id)) {
         try {
           const res = await api.item(id);
@@ -192,78 +317,105 @@ export default function App() {
         }
       }
     },
-    [items],
+    [items, navigate],
   );
+
+  /** Stable row selection callback keeps memoized items from re-rendering. */
+  const selectItem = useCallback(
+    (id: string) => {
+      void openItem(id);
+    },
+    [openItem],
+  );
+
+  /** Remove a row from the current status list before the network settles. */
+  const dropItem = useCallback((id: string) => {
+    setItems((prev) => prev.filter((item) => item.id !== id));
+    setTotal((prev) => Math.max(0, prev - 1));
+  }, []);
 
   const deleteItem = useCallback(
     async (id: string) => {
+      dropItem(id);
+      setSelectedId(null);
       try {
         await api.deleteItem(id);
-        setSelectedId(null);
-        await refresh();
         toast("Moved to trash. Purged after 30 days.");
       } catch (err) {
+        void refresh().catch(() => undefined);
         toast(err instanceof ApiError ? err.message : "Delete failed", "error");
       }
     },
-    [refresh, toast],
+    [dropItem, refresh, toast],
   );
 
   const setArchived = useCallback(
     async (id: string, archived: boolean) => {
+      dropItem(id);
+      setSelectedId(null);
       try {
         await (archived ? api.archiveItem(id) : api.unarchiveItem(id));
-        setSelectedId(null);
-        await refresh();
         toast(archived ? "Archived. Find it under Archived." : "Back in the active stream.");
       } catch (err) {
+        void refresh().catch(() => undefined);
         toast(err instanceof ApiError ? err.message : "Archive failed", "error");
       }
     },
-    [refresh, toast],
+    [dropItem, refresh, toast],
   );
 
   const restoreItem = useCallback(
     async (id: string) => {
+      dropItem(id);
+      setSelectedId(null);
       try {
         await api.restoreItem(id);
-        setSelectedId(null);
-        await refresh();
         toast("Restored to your library.");
       } catch (err) {
+        void refresh().catch(() => undefined);
         toast(err instanceof ApiError ? err.message : "Restore failed", "error");
       }
     },
-    [refresh, toast],
+    [dropItem, refresh, toast],
   );
 
   const purgeItem = useCallback(
     async (id: string) => {
       if (!window.confirm("Delete this item permanently? This cannot be undone.")) return;
+      dropItem(id);
+      setSelectedId(null);
       try {
         await api.purgeItem(id);
-        setSelectedId(null);
-        await refresh();
         toast("Deleted permanently.");
       } catch (err) {
+        void refresh().catch(() => undefined);
         toast(err instanceof ApiError ? err.message : "Delete failed", "error");
       }
     },
-    [refresh, toast],
+    [dropItem, refresh, toast],
   );
 
   const retryItem = useCallback(
     async (id: string) => {
+      setItems((prev) =>
+        prev.map((item) => (item.id === id ? { ...item, embedding_state: "pending" } : item)),
+      );
       try {
         await api.retryItem(id);
         toast("Re-enrichment queued.");
-        setTimeout(() => void refresh(), 1500);
       } catch (err) {
+        void refresh().catch(() => undefined);
         toast(err instanceof ApiError ? err.message : "Retry failed", "error");
       }
     },
     [refresh, toast],
   );
+
+  const archiveItem = useCallback((id: string) => void setArchived(id, true), [setArchived]);
+  const unarchiveItem = useCallback((id: string) => void setArchived(id, false), [setArchived]);
+  const trashItem = useCallback((id: string) => void deleteItem(id), [deleteItem]);
+  const restoreOnly = useCallback((id: string) => void restoreItem(id), [restoreItem]);
+  const purgeOnly = useCallback((id: string) => void purgeItem(id), [purgeItem]);
 
   const loadMore = useCallback(async () => {
     if (!nextCursor || loadingMore) return;
@@ -312,7 +464,7 @@ export default function App() {
 
   const selectSource = (source: string) => {
     setSourceFilter(source);
-    setView("knowledge");
+    navigate("knowledge");
     setAtlasFilter(null);
   };
 
@@ -329,7 +481,7 @@ export default function App() {
         status={itemStatus}
         sources={sources}
         source={sourceFilter}
-        onNavigate={setView}
+        onNavigate={navigate}
         onStatus={(next) => {
           setSelectedId(null);
           setItemStatus(next);
@@ -353,89 +505,99 @@ export default function App() {
           onNote={() => setNoteOpen(true)}
           onImport={() => {
             setImportPreferred(null);
-            setView("import");
+            navigate("import");
           }}
-          onSettings={() => setView("settings")}
+          onSettings={() => navigate("settings")}
         />
 
         <div className="relative flex min-h-0 flex-1">
           <main className="min-w-0 flex-1 overflow-y-auto pb-16 md:pb-0">
-            {view === "knowledge" ? (
-              <Knowledge
-                items={items}
-                total={total}
-                selectedId={selectedId}
-                onSelect={(id) => void openItem(id)}
-                onCloseInspector={() => setSelectedId(null)}
-                filter={atlasFilter}
-                onFilter={applyAtlasFilter}
-                source={sourceFilter}
-                onSource={selectSource}
-                onArchive={(id) => void setArchived(id, true)}
-                onUnarchive={(id) => void setArchived(id, false)}
-                onTrash={(id) => void deleteItem(id)}
-                onRestore={(id) => void restoreItem(id)}
-                onPurge={(id) => void purgeItem(id)}
-                status={itemStatus}
-                layout={itemLayout}
-                onLayout={setItemLayout}
-                allSources={knownSources}
-                onOpenRecall={() => openRecall("")}
-                onNavigateImport={() => {
-                  setImportPreferred(null);
-                  setView("import");
-                }}
-                theme={theme}
-                hasMore={Boolean(nextCursor)}
-                loadingMore={loadingMore}
-                onLoadMore={loadMore}
-              />
-            ) : null}
+            <Suspense fallback={<SectionLoading label="Loading section" />}>
+              {view === "knowledge" ? (
+                itemsLoading && items.length === 0 ? (
+                  <SectionLoading label="Loading your library" />
+                ) : (
+                  <Knowledge
+                    items={items}
+                    total={total}
+                    selectedId={selectedId}
+                    onSelect={selectItem}
+                    onCloseInspector={() => setSelectedId(null)}
+                    filter={atlasFilter}
+                    onFilter={applyAtlasFilter}
+                    source={sourceFilter}
+                    onSource={selectSource}
+                    onArchive={archiveItem}
+                    onUnarchive={unarchiveItem}
+                    onTrash={trashItem}
+                    onRestore={restoreOnly}
+                    onPurge={purgeOnly}
+                    status={itemStatus}
+                    layout={itemLayout}
+                    onLayout={setItemLayout}
+                    allSources={knownSources}
+                    onOpenRecall={() => openRecall("")}
+                    onNavigateImport={() => {
+                      setImportPreferred(null);
+                      navigate("import");
+                    }}
+                    theme={theme}
+                    hasMore={Boolean(nextCursor)}
+                    loadingMore={loadingMore}
+                    onLoadMore={loadMore}
+                  />
+                )
+              ) : null}
 
-            {view === "apps" ? (
-              <AppsView
-                toast={toast}
-                onNavigateImport={(appId) => {
-                  setImportPreferred(appId);
-                  setView("import");
-                }}
-                onChanged={() => void refresh()}
-                preferred={null}
-              />
-            ) : null}
+              {view === "apps" ? (
+                <AppsView
+                  toast={toast}
+                  onNavigateImport={(appId) => {
+                    setImportPreferred(appId);
+                    navigate("import");
+                  }}
+                  onChanged={() => void refresh()}
+                  preferred={null}
+                />
+              ) : null}
 
-            {view === "import" ? (
-              <ImportView
-                toast={toast}
-                onChanged={() => void refresh()}
-                preferred={importPreferred}
-              />
-            ) : null}
+              {view === "import" ? (
+                <ImportView
+                  toast={toast}
+                  onChanged={() => void refresh()}
+                  preferred={importPreferred}
+                />
+              ) : null}
 
-            {view === "mcp" ? (
-              <Suspense
-                fallback={
-                  <div className="mx-auto w-full max-w-3xl p-4 font-mono text-[10px] text-faint">
-                    Loading MCP…
-                  </div>
-                }
-              >
-                <McpView toast={toast} account={account} />
-              </Suspense>
-            ) : null}
+              {view === "mcp" ? (
+                <Suspense
+                  fallback={
+                    <div className="mx-auto w-full max-w-3xl p-4 font-mono text-[10px] text-faint">
+                      Loading MCP…
+                    </div>
+                  }
+                >
+                  <McpView toast={toast} account={account} />
+                </Suspense>
+              ) : null}
 
-            {view === "settings" ? (
-              <SettingsView
-                account={account}
-                theme={theme}
-                onTheme={setTheme}
-                accent={accent}
-                onAccent={setAccent}
-                onSignedOut={signOut}
-                onPlanChanged={() => void refresh()}
-                toast={toast}
-              />
-            ) : null}
+              {view === "settings" ? (
+                itemsLoading && !account ? (
+                  <SectionLoading label="Loading settings" />
+                ) : (
+                  <SettingsView
+                    account={account}
+                    theme={theme}
+                    onTheme={setTheme}
+                    accent={accent}
+                    onAccent={setAccent}
+                    onSignedOut={signOut}
+                    onPlanChanged={() => void refresh()}
+                    toast={toast}
+                  />
+                )
+              ) : null}
+            </Suspense>
           </main>
 
           {view === "knowledge" && selected ? (
@@ -445,22 +607,23 @@ export default function App() {
               onWidthChange={setPanelWidth}
               onDelete={deleteItem}
               onRetry={retryItem}
-              onOpenItem={(id) => void openItem(id)}
+              onRestore={restoreItem}
+              onOpenItem={selectItem}
               onClose={() => setSelectedId(null)}
             />
           ) : null}
         </div>
       </div>
 
-      <MobileNav view={view} onNavigate={setView} />
+      <MobileNav view={view} onNavigate={navigate} />
 
       <Recall
         open={recallOpen}
         seed={recallSeed}
         recent={items.filter((item) => !item.deleted_at && !item.archived_at).slice(0, 5)}
         onClose={() => setRecallOpen(false)}
-        onOpenItem={(id) => void openItem(id)}
-        onNavigate={setView}
+        onOpenItem={selectItem}
+        onNavigate={navigate}
         onCaptured={() => void refresh()}
         onTheme={setTheme}
         theme={theme}
@@ -474,7 +637,7 @@ export default function App() {
             onClose={() => setNoteOpen(false)}
             onSaved={() => {
               setNoteOpen(false);
-              setView("knowledge");
+              navigate("knowledge");
               void refresh();
               toast("Note saved to your library.");
             }}

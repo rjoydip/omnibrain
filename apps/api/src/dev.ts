@@ -267,7 +267,6 @@ const env: Env = {
   AUTH_SECRET: process.env.AUTH_SECRET ?? "dev-secret-change-me",
   APP_ORIGIN: process.env.APP_ORIGIN ?? "http://localhost:5173",
   DEV_MODE: "1",
-  RESEND_KEY: process.env.RESEND_KEY,
   NOTION_CLIENT_ID: process.env.NOTION_CLIENT_ID,
   NOTION_CLIENT_SECRET: process.env.NOTION_CLIENT_SECRET,
   X_CLIENT_ID: process.env.X_CLIENT_ID,

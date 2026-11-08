@@ -21,7 +21,7 @@ bun run dev
 
 Sign in with the demo email. In development the six-digit code is returned as `dev_code`, shown in
 the UI, and printed in the API terminal. No email provider is required locally. Production always
-sends the code through Resend and never returns it in the response.
+sends the code through Cloudflare Email Service and never returns it in the response.
 
 ```bash
 bun test              # core, db, auth, connectors, AI, API
@@ -35,21 +35,22 @@ bun run check         # format check + typecheck + lint + tests + build
 
 ## Stack
 
-| Layer           | Choice                                          |
-| --------------- | ----------------------------------------------- |
-| Runtime/tooling | Bun workspaces, `bun test`, `bun fmt`, `oxlint` |
-| API             | Hono on Cloudflare Workers (`apps/api`)         |
-| Web             | React 19 + Vite 8 + Tailwind v4 (`apps/web`)    |
-| Data            | D1-compatible SQL + FTS5, R2, Vectorize         |
-| AI              | Workers AI `bge-m3` embeddings + instruct model |
-| Infra           | Alchemy (`alchemy.run.ts`), no `wrangler.toml`  |
-| Auth            | Email OTP + hashed opaque session tokens        |
+| Layer           | Choice                                                              |
+| --------------- | ------------------------------------------------------------------- |
+| Runtime/tooling | Bun workspaces, `bun test`, `bun fmt`, `oxlint`                     |
+| API             | Hono on Cloudflare Workers (`apps/api`)                             |
+| Web             | React 19 + Vite 8 + Tailwind v4 (`apps/web`)                        |
+| Data            | D1-compatible SQL + FTS5, R2, Vectorize                             |
+| AI              | Workers AI `bge-m3` embeddings + instruct model                     |
+| Infra           | Alchemy (`alchemy.run.ts`), no `wrangler.toml`                      |
+| Auth            | Email OTP (Cloudflare Email Service) + hashed opaque session tokens |
 
 Production compute is workerd. Bun is the toolchain, not the deployed runtime.
 
 ## What works now
 
-- Email OTP signup/login, workspaces, roles, HttpOnly sessions, CSRF origin checks, rate limits.
+- Email OTP signup/login, workspaces, roles, HttpOnly sessions, CSRF double-submit + origin checks,
+  security headers, and rate limits (including a durable OTP resend cooldown).
 - Items CRUD, trash + 30-day purge, per-tenant scoping enforced by `forWorkspace()`.
 - Browser bookmark HTML parser and Google Keep Takeout parser (both run client-side in the import UI).
 - Batch import with canonical-URL dedupe and idempotent re-import.
@@ -61,7 +62,9 @@ Production compute is workerd. Bun is the toolchain, not the deployed runtime.
 - Notch Toast notifications and Kirari syntax highlighting for JSON config/results.
 - Flat memory map with 52 weeks of small boxes, drag-box source/date filtering, and a resizable inspector.
 - Usage/entitlement accounting, API keys, GDPR export, account deletion with vector cleanup.
-- Memory-map density chart, list stream, inspector, Recall omnibox, App Store, Import, MCP console, Settings. Ink/Paper/Contrast themes, keyboard-first, responsive down to 390px.
+- Memory-map density chart, list/grid/graph stream, inspector, Recall omnibox, App Store, Import, MCP
+  console, Settings. Views and filters are URL-addressable; mutations are optimistic. Ink/Paper/Contrast
+  themes, keyboard-first, responsive down to 390px.
 
 ## What is explicitly deferred
 

@@ -15,7 +15,6 @@
     "@omnibrain/search": "workspace:*",
     "@omnibrain/ui": "workspace:*",
     "kirari": "^1.2.0",
-    "motion": "^14.10.1",
     "notch-toast": "^0.2.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"

@@ -347,6 +347,31 @@ export function MobileNav({ view, onNavigate }: { view: View; onNavigate: (view:
   );
 }
 
+/** Shared skeleton shown while a section's data or chunk is still loading. */
+export function SectionLoading({ label = "Loading" }: { label?: string }) {
+  return (
+    <div
+      className="mx-auto w-full max-w-3xl p-3 md:p-4"
+      role="status"
+      aria-live="polite"
+      aria-busy="true"
+    >
+      <div className="space-y-2">
+        <div className="skeleton h-2.5 w-20" />
+        <div className="skeleton h-6 w-36" />
+      </div>
+      <div className="mt-5 space-y-1">
+        <div className="skeleton h-12 w-full" />
+        <div className="skeleton h-12 w-full" />
+        <div className="skeleton h-12 w-full" />
+        <div className="skeleton h-12 w-full" />
+        <div className="skeleton h-12 w-full" />
+      </div>
+      <span className="sr-only">{label}</span>
+    </div>
+  );
+}
+
 export function BootSplash({ error, onRetry }: { error: string | null; onRetry: () => void }) {
   return (
     <div className="relative z-10 grid min-h-full place-items-center p-6">

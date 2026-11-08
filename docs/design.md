@@ -17,7 +17,7 @@
 │ Rail       │ Canvas                                   │ Inspector   │
 │ Recall     │ Memory map + stream                      │ provenance  │
 │ Knowledge  │                                          │ original    │
-│ Apps       │                                          │ delete      │
+│ Apps       │                                          │ restore     │
 │ Import     │                                          │             │
 │ MCP        │                                          │             │
 │ Settings   │                                          │             │
@@ -31,6 +31,8 @@
   The middle canvas is flex-sized, so resizing reflows it rather than overlapping.
 - Scrolling happens in the canvas and inspector independently; headers stay put.
 - Spacing is intentionally tight: 3–4 px unit steps, 12 px gutters, 8 px radius.
+- Navigation state is in the URL (`?view=…&status=…&source=…&layout=…&fstart=…`), so back/forward and
+  deep links work. Theme, accent and inspector width persist in localStorage.
 
 ## Tokens
 
@@ -52,11 +54,11 @@ Defined in `packages/ui/src/tokens.css` and exposed to Tailwind in `apps/web/src
 
 Second theme "Paper" is a warm light editorial palette. "Contrast" is black/white with a yellow
 signal for accessibility. Themes switch via the icon button in the top-right header (or Settings →
-Appearance) and are stored in `localStorage["omnibrain.theme"]`. Ink is the default.
+Appearance) and are stored in `localStorage["omnibrain.theme.v2"]`. Ink is the default.
 
 Six flat accent palettes are available in Settings → Appearance: cobalt (default), amber, mint,
-coral, violet, slate. The choice sets `data-accent` on `<html>`, is stored in
-`localStorage["omnibrain.accent"]`, and drives links, focus rings, badges, AI labels, tags and
+rose, violet, cyan. The choice sets `data-accent` on `<html>`, is stored in
+`localStorage["omnibrain.accent.v2"]`, and drives links, focus rings, badges, AI labels, tags and
 selected indicators via `--accent`. Swatches are solid colors; no gradients.
 
 Notifications use [Notch Toast](https://notch.devsethi.me/) mounted once at the app root
@@ -65,8 +67,9 @@ Notifications use [Notch Toast](https://notch.devsethi.me/) mounted once at the 
 Type: Geist Variable for UI, Geist Mono for metadata, counts, URLs and tags. Base 14 px in app,
 16 px reading, tight heading tracking.
 
-Motion: 120–200 ms ease-out for state, `rise-in` for the Recall panel, reduced-motion media query
-disables animation.
+Motion: native View Transitions (160 ms root crossfade) on view switches, `inspector-spring` for
+panel width, and a `scaleY` accent bar on the selected list row. Controls use 120–200 ms ease-out;
+`rise-in` remains for Recall/toasts. `prefers-reduced-motion` disables all of it.
 
 ## Memory map (Atlas)
 
@@ -81,7 +84,8 @@ The signature view: a 52-week density map.
 - **Drag a box** (or click one cell) to filter by source rows and a date range; the filter chip is
   removable. A single click selects one week/source.
 - Canvas is redrawn on resize and theme change; the DOM fallback is the stream itself.
-- No graph view. A canvas beats SVG here and avoids physics.
+- List, grid and graph are separate layouts; the graph (`ItemGraph`) is a different canvas. Atlas
+  stays the density map and avoids physics.
 - Selected/filtered cells use the theme accent.
 
 ## Recall
@@ -105,8 +109,8 @@ items. No results offers "Save as a note".
   `--kirari-*` variables.
 - MCP keys stay in the list after creation with an eye toggle and copy button; keys created before
   the current page load show `shown only at creation` because only the hash is stored.
-- Every data view has **loading** (skeletons), **empty** (instruction + action), **error** (message +
-  retry) and **success**.
+- Every data view has **loading** (`SectionLoading` skeletons), **empty** (instruction + action),
+  **error** (message + retry) and **success**.
 - Source glyphs are small monospace tiles; status is never colour-only (text or title also present).
 - Provenance block: "AI summary · generated", body, "from extracted page text · not the author's
   words".
@@ -125,14 +129,14 @@ items. No results offers "Save as a note".
 
 | Metric             | Budget                       |
 | ------------------ | ---------------------------- |
-| Initial JS (gzip)  | ≤ 200 KB (currently ~188 KB) |
+| Initial JS (gzip)  | ≤ 200 KB (currently ~194 KB) |
 | LCP                | ≤ 1.8 s                      |
 | INP                | ≤ 200 ms                     |
 | CLS                | ≤ 0.05                       |
 | Search results p95 | ≤ 400 ms                     |
 
-The memory map is lazy by nature (one canvas). No icon barrel imports; no chart library; fonts are
-self-hosted variable subsets.
+The memory map, graph, Markdown, Import, Apps, MCP and note capture are lazy; no icon barrel imports,
+no chart library, fonts are self-hosted variable subsets.
 
 ## Content rules
 

@@ -103,3 +103,28 @@ surface that can drift. The Bun dev server plus tests cover review needs.
 
 **Ceiling:** no clickable URL per PR. If product review requires one, add a single ephemeral stage
 with its own D1/R2 and no provider credentials, and destroy it on PR close.
+
+## ADR-13: URL state, no client store
+
+**Decision:** `view`, `status`, `source`, `layout` and the Atlas filter are URL search params; theme,
+accent and inspector width stay in localStorage. Server data remains the source of truth. Mutations
+update the list optimistically, and `refresh()` is abortable.
+
+**Why:** there is no cross-tree writer, undo or offline need that justifies Redux/Zustand. URL state
+gives deep links and back/forward for free, and optimistic list edits remove the per-mutation refetch
+without adding a cache dependency.
+
+**Ceiling:** a reload refetches the first page. Adopt TanStack Query (or similar) only when caching,
+retries or offline mutations become real requirements.
+
+## ADR-14: Cloudflare Email Service for OTP
+
+**Decision:** send OTPs with the Workers `send_email` binding (`EMAIL`) provisioned by
+`alchemy.run.ts`. Keep a durable 60-second resend cooldown per address, derived from the stored OTP
+row, alongside per-IP/per-email windows and the 10-minute expiry.
+
+**Why:** no third-party API key to rotate, delivery stays inside Cloudflare, and the stored row makes
+the cooldown hold across isolates instead of resetting per isolate.
+
+**Ceiling:** arbitrary-recipient sending needs the Workers Paid plan and a verified sender. Move to a
+queue if OTP volume ever competes with request CPU.

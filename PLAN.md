@@ -70,7 +70,7 @@ Plans (numbers are placeholders to validate in Phase 4, enforcement code is shar
 | Frontend                  | React 19 + Vite + Tailwind v4 + Radix primitives                                                  | Fast, accessible, no heavy UI kit                                         |
 | Auth                      | Email OTP + opaque hashed session tokens (no provider lock-in)                                    | No per-MAU tax, self-hosted sessions                                      |
 | Billing                   | Stripe Checkout + Customer Portal + webhooks                                                      | Standard, Workers-compatible                                              |
-| Email                     | Resend (transactional)                                                                            | Simple fetch-based API                                                    |
+| Email                     | Cloudflare Email Service (`send_email` binding)                                                   | No third-party API key, sends from Workers                                |
 | Observability             | Workers Logs → Axiom, Sentry, Analytics Engine                                                    | Errors + product metrics                                                  |
 | CI/CD                     | GitHub Actions + Alchemy                                                                          | CI on PR, prod on tag (no preview worker)                                 |
 
@@ -151,7 +151,7 @@ Resources to add in Phase 0, each proven by a deploy + a smoke request:
 | `Queue` + consumer                                                                         | Enrichment jobs                                                                                          | At-least-once; handlers must be idempotent; DLQ after 5 attempts        |
 | `DurableObject`                                                                            | Per-workspace quota counters, OAuth refresh locks, sync leases                                           | One DO per workspace (`idFromName(workspaceId)`)                        |
 | Cron Triggers                                                                              | Connector sync, trash purge, usage flush                                                                 | Every 15 min (Pro/Team), hourly (Free)                                  |
-| Secrets                                                                                    | `BETTER_AUTH_SECRET`, `MASTER_KEY` (AES-GCM), `STRIPE_SECRET`, `RESEND_KEY`, provider client IDs/secrets | Never in `alchemy.run.ts` values; bind from env/secret store            |
+| Secrets                                                                                    | `BETTER_AUTH_SECRET`, `MASTER_KEY` (AES-GCM), `STRIPE_SECRET`, `EMAIL_FROM`, provider client IDs/secrets | Never in `alchemy.run.ts` values; bind from env/secret store            |
 
 **Alchemy rules:** `alchemy.run.ts` is the only place resources are declared. No `wrangler.toml` in any app. Preview stages are destroyed on PR close. Prod deploy is blocked unless `ci` is green on the same commit. State lives in Cloudflare (`Cloudflare.state()`); no local state file in CI.
 
@@ -635,7 +635,7 @@ jobs:
 ```
 
 - `deploy.yml`: on tag `v*`, require green CI on the same SHA → `bun alchemy deploy --stage prod` → smoke tests (`/health`, one search, one MCP tool) → notify. Fail closed. No preview worker stage.
-- Secrets: `CLOUDFLARE_API_TOKEN` (scoped), `AUTH_SECRET`, `TOKEN_KEY`, Stripe, Resend, provider apps. No secrets in repo, no secrets baked into the SPA.
+- Secrets: `CLOUDFLARE_API_TOKEN` (scoped), `AUTH_SECRET`, `TOKEN_KEY`, Stripe, `EMAIL_FROM`, provider apps. No secrets in repo, no secrets baked into the SPA.
 - Branch protection: 1 review, required checks, linear history, no direct pushes to `main`.
 
 ---

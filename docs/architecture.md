@@ -10,6 +10,7 @@ Browser ──► Vite SPA (apps/web) ──► Hono API Worker (apps/api)
                                       ├─ R2        extracted text snapshots
                                       ├─ Vectorize chunk embeddings (namespace = workspace)
                                       ├─ Workers AI embeddings + summaries
+                                      ├─ Email Service  OTP delivery (`send_email` binding)
                                       └─ Queue     optional enrichment consumer
 
 MCP client (Claude/Cursor) ──POST /mcp──► same Worker ──► same repository
@@ -23,18 +24,35 @@ runs under `Bun.serve` (`apps/api/src/dev.ts`). There is no preview Worker stage
 `apps/api/src/app.ts` builds one Hono app:
 
 1. **Request context** — generate `requestId`, log method/path/status/duration in dev.
-2. **Security headers** — nosniff, DENY framing, referrer policy, permissions policy.
-3. **CORS** — only `APP_ORIGIN` (or same host) with credentials.
+2. **Security headers** — nosniff, DENY framing, referrer/permissions policy, HSTS and
+   `Cross-Origin-Opener-Policy: same-origin`, plus a strict JSON CSP (`default-src 'none'`).
+3. **CORS** — only `APP_ORIGIN` (or same host) with credentials; allows `x-csrf-token`.
 4. **Public routes** — `/health`, `/api/v1/auth/*`, `/api/v1/oauth/:app/callback`, `/mcp`.
 5. **Protected group** (`/api/v1/*`):
    - `originGuard` — rejects unsafe methods with a foreign `Origin`.
    - `sessionMiddleware` — resolves the `ob_session` cookie if present.
    - `requireSession` — 401 when absent.
+   - `csrfGuard` — unsafe methods need `x-csrf-token` matching `omnibrain_csrf`, unless the browser
+     reports `Sec-Fetch-Site: same-origin|same-site`.
    - `workspaceMiddleware` — resolves `x-workspace-id` (validated against membership) or the first
      workspace, then sets `workspaceId`, `workspace`, `role`.
+   - `writeRateLimit` — 120 mutations/minute per workspace+user; reads are unmetered.
 
 Errors are normalised by `appErrorToResponse`: `AppError` → `{ error: { code, message, requestId } }`;
 anything else is logged and becomes a generic 500.
+
+## SPA data flow
+
+- `apps/web/src/App.tsx` owns the session, the loaded item page, and local preferences. There is no
+  global store; the server is the source of truth.
+- URL search params (`view`, `status`, `source`, `layout`, `fstart`/`fend`/`flabel`/`fsrc`) are the
+  navigation source of truth: changes `pushState`, `popstate` hydrates, so back/forward and deep
+  links work. Theme, accent and inspector width persist in localStorage.
+- `refresh()` fetches items + account with an `AbortController`; starting a new refresh aborts the
+  previous one, and `AbortError` is ignored.
+- Archive, trash, restore, purge and retry update the list optimistically and only resync on failure.
+- The first load and status switches show `SectionLoading` skeletons until data arrives. Lazy chunks
+  share the same fallback, and list rows are memoized with stable callbacks.
 
 ## Tenancy
 
@@ -118,14 +136,15 @@ tenant-scoped repository and search service as the web app. Each request is reco
 - D1 database with migrations from `packages/db/migrations`.
 - R2 bucket for extracted text.
 - Vectorize index (1024 dimensions, cosine).
-- API Worker with D1/R2/Vectorize bindings and secrets from the environment.
-- Vite site, with `VITE_API_URL` inlined at build time.
+- API Worker with D1/R2/Vectorize/Email Service bindings and secrets from the environment.
+- Vite site, with `VITE_API_URL` inlined at build time and a build-time CSP `<meta>` injected.
 
 Production compute is workerd. Bun is the local/runtime toolchain, not the deployed runtime.
 
 ## Known limits
 
-- Rate limits are per-isolate `Map` windows; Durable Object counters are planned.
+- Rate limits are per-isolate `Map` windows; Durable Object counters are planned. The OTP resend
+  cooldown is the exception: it is derived from the stored code row, so it holds across isolates.
 - Inline enrichment can be lost if an isolate dies; bind the queue for production confidence.
 - OAuth token refresh is not automatic; a 401 marks the connection `degraded`.
 - Billing is modelled but Stripe is not wired.
