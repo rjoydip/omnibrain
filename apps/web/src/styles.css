@@ -1,6 +1,4 @@
 @import "tailwindcss";
-@import "@fontsource-variable/geist/index.css";
-@import "@fontsource-variable/geist-mono/index.css";
 @import "@omnibrain/ui/tokens.css";
 @import "kirari/theme.css";
 
@@ -18,11 +16,15 @@
   --color-signal: var(--signal);
   --color-signal-ink: var(--signal-ink);
   --color-cobalt: var(--cobalt);
+  --color-amber: var(--a-amber);
   --color-accent: var(--accent);
   --color-mint: var(--mint);
   --color-coral: var(--coral);
-  --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "Geist Mono Variable", ui-monospace, SFMono-Regular, monospace;
+  --font-sans:
+    "Geist", "Inter", "Segoe UI Variable", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-mono:
+    "Geist Mono", "JetBrains Mono", "Cascadia Code", "SFMono-Regular", Consolas, ui-monospace,
+    monospace;
   --radius-card: var(--radius);
 }
 
@@ -39,7 +41,7 @@
     margin: 0;
     background: var(--canvas);
     color: var(--text);
-    font-family: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+    font-family: var(--font-sans);
     font-feature-settings:
       "ss01" 1,
       "cv11" 1;
@@ -100,7 +102,7 @@
     border: 0;
   }
   .kbd {
-    font-family: "Geist Mono Variable", ui-monospace, monospace;
+    font-family: var(--font-mono);
     font-size: 9px;
     line-height: 1;
     padding: 3px 5px;
@@ -187,7 +189,7 @@
     border-radius: 6px;
     display: grid;
     place-items: center;
-    font-family: "Geist Mono Variable", ui-monospace, monospace;
+    font-family: var(--font-mono);
     font-size: 11px;
     border: 0;
     background: var(--raised);

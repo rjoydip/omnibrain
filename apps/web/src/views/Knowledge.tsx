@@ -57,7 +57,9 @@ function KnowledgeItemBase({
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const meta = sourceMeta(item.source);
-  const excerpt = item.summary ?? item.excerpt ?? "No text extracted yet.";
+  // Gists are code: the row stays title-only; the Inspector shows the content.
+  const excerpt =
+    item.source === "github" ? "" : (item.summary ?? item.excerpt ?? "No text extracted yet.");
 
   const menu = useMemo(
     () => (
@@ -119,6 +121,7 @@ function KnowledgeItemBase({
   );
 
   const labels = useMemo(() => {
+    if (item.source === "github") return null;
     const tags = item.tags_text.split(" ").filter(Boolean).slice(0, 3);
     return (
       <div className="mt-1 flex flex-wrap items-center gap-1.5">
@@ -141,7 +144,7 @@ function KnowledgeItemBase({
         ) : null}
       </div>
     );
-  }, [item.tags_text, item.archived_at, item.deleted_at]);
+  }, [item.source, item.tags_text, item.archived_at, item.deleted_at]);
 
   if (layout === "grid") {
     return (
@@ -170,7 +173,9 @@ function KnowledgeItemBase({
           <span className="mt-2 line-clamp-2 text-[13.5px] font-medium text-text">
             {item.title}
           </span>
-          <p className="mt-1 line-clamp-3 text-[11.5px] leading-relaxed text-muted">{excerpt}</p>
+          {excerpt ? (
+            <p className="mt-1 line-clamp-3 text-[11.5px] leading-relaxed text-muted">{excerpt}</p>
+          ) : null}
           {labels}
         </button>
         <div className="absolute top-2 right-1.5">{menu}</div>
@@ -207,7 +212,11 @@ function KnowledgeItemBase({
               {timeLabel(item.captured_at)}
             </span>
           </div>
-          <p className="mt-0.5 line-clamp-1 text-[11.5px] leading-relaxed text-muted">{excerpt}</p>
+          {excerpt ? (
+            <p className="mt-0.5 line-clamp-1 text-[11.5px] leading-relaxed text-muted">
+              {excerpt}
+            </p>
+          ) : null}
           {labels}
         </div>
       </button>

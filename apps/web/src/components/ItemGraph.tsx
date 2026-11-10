@@ -223,16 +223,16 @@ export function ItemGraph({
       }
 
       if (node.kind === "source") {
-        ctx.font = "600 10px 'Geist Mono Variable', ui-monospace, monospace";
+        ctx.font = "600 10px ui-monospace, monospace";
         ctx.fillStyle = text;
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
         ctx.fillText(String(node.count), node.x, node.y + 0.5);
-        ctx.font = "10px 'Geist Mono Variable', ui-monospace, monospace";
+        ctx.font = "10px ui-monospace, monospace";
         ctx.textBaseline = "top";
         ctx.fillText(truncate(node.label, 18), node.x, node.y + node.radius + 6);
       } else if (hovered || selected) {
-        ctx.font = "10px 'Geist Mono Variable', ui-monospace, monospace";
+        ctx.font = "10px ui-monospace, monospace";
         ctx.fillStyle = text;
         ctx.textAlign = "center";
         ctx.textBaseline = "bottom";
@@ -242,7 +242,7 @@ export function ItemGraph({
 
     ctx.restore();
 
-    ctx.font = "9px 'Geist Mono Variable', ui-monospace, monospace";
+    ctx.font = "9px ui-monospace, monospace";
     ctx.fillStyle = faint;
     ctx.textAlign = "left";
     ctx.textBaseline = "bottom";

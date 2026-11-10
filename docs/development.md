@@ -16,7 +16,7 @@ bun run dev
 | Service | URL                          | Notes                                    |
 | ------- | ---------------------------- | ---------------------------------------- |
 | Web     | http://localhost:5173        | Vite, proxies `/api` and `/mcp` to :8787 |
-| API     | http://localhost:8787        | `Bun.serve`, SQLite, seed data           |
+| API     | http://localhost:8787        | `Bun.serve`, local SQLite                |
 | Health  | http://localhost:8787/health | No auth                                  |
 
 Demo login: `demo@omnibrain.local`. The OTP is printed in the API terminal and returned as
@@ -54,7 +54,7 @@ apps/api/src/routes/       auth, items, search, apps, imports, keys, account
 apps/api/src/services/     enrich, search, connectors, items, mail
 apps/api/src/mcp.ts        JSON-RPC tools
 apps/api/src/worker.ts     fetch + queue + scheduled
-apps/api/src/dev.ts        Bun server, SQLite, seed
+apps/api/src/dev.ts        Bun server, local SQLite
 packages/core/             schemas, errors, ids, entitlements
 packages/db/               migration SQL, D1/SQLite client, scoped repository
 packages/auth/             OTP + sessions
@@ -91,8 +91,8 @@ Copy `.env.example` to `.env` and fill only what you need:
   Worker needs a `send_email` binding, which `alchemy.run.ts` provisions automatically. In
   development the code is returned directly and no email is sent; in production a missing binding
   makes sign-in fail loudly.
-- `NOTION_*`, `X_*`, `RAINDROP_*` — optional OAuth client fallbacks. Preferred path is
-  App Store → credentials, which stores them AES-GCM encrypted in the database.
+- `NOTION_*`, `GH_*`, `GOOGLE_*` — optional OAuth clients. Set them once to enable
+  one-click sign-in in the App Store; there is no in-app client-secret form.
 - `TOKEN_KEY` — encryption key for connector tokens and stored credentials (falls back to
   `AUTH_SECRET`).
 

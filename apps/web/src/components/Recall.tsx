@@ -407,7 +407,7 @@ export function Recall({
                               {item.url ? (
                                 <>
                                   <span>·</span>
-                                  <span className="truncate">{shortUrl(item.url)}</span>
+                                  <span className="truncate text-accent">{shortUrl(item.url)}</span>
                                 </>
                               ) : null}
                             </div>

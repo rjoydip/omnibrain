@@ -28,23 +28,23 @@ export function providerFor(env: Env, appId: string): ProviderConfig | null {
         clientId: env.NOTION_CLIENT_ID,
         clientSecret: env.NOTION_CLIENT_SECRET,
       };
-    case "x":
+    case "keep":
       return {
-        authorizationUrl: "https://twitter.com/i/oauth2/authorize",
-        tokenUrl: "https://api.x.com/2/oauth2/token",
-        scopes: ["bookmark.read", "tweet.read", "users.read", "offline.access"],
+        authorizationUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+        tokenUrl: "https://oauth2.googleapis.com/token",
+        scopes: ["https://www.googleapis.com/auth/keep.readonly"],
         pkce: true,
-        clientId: env.X_CLIENT_ID,
-        clientSecret: env.X_CLIENT_SECRET,
+        clientId: env.GOOGLE_CLIENT_ID,
+        clientSecret: env.GOOGLE_CLIENT_SECRET,
       };
-    case "raindrop":
+    case "github":
       return {
-        authorizationUrl: "https://raindrop.io/oauth/authorize",
-        tokenUrl: "https://raindrop.io/oauth/access_token",
-        scopes: ["raindrops:read"],
+        authorizationUrl: "https://github.com/login/oauth/authorize",
+        tokenUrl: "https://github.com/login/oauth/access_token",
+        scopes: ["gist"],
         pkce: false,
-        clientId: env.RAINDROP_CLIENT_ID,
-        clientSecret: env.RAINDROP_CLIENT_SECRET,
+        clientId: env.GH_CLIENT_ID,
+        clientSecret: env.GH_CLIENT_SECRET,
       };
     default:
       return null;
@@ -89,14 +89,19 @@ export function authorizeUrl(
       scopes: provider.scopes,
       state,
       codeChallenge: challenge,
-      extra: appId === "notion" ? { owner: "user" } : undefined,
+      extra:
+        appId === "notion"
+          ? { owner: "user" }
+          : appId === "keep"
+            ? { access_type: "offline", prompt: "consent" }
+            : undefined,
     });
   });
 }
 
 /**
- * Notion uses JSON + Basic auth; X and Raindrop use form encoding. Both paths
- * are explicit so the token request is never a guess.
+ * Notion uses JSON + Basic auth; GitHub and Google use form encoding. Both
+ * paths are explicit so the token request is never a guess.
  */
 export async function exchangeForApp(input: {
   env: Env;
@@ -111,6 +116,34 @@ export async function exchangeForApp(input: {
     throw new Error(`${input.appId} oauth is not configured`);
   }
   const fetchImpl = input.fetchImpl ?? fetch;
+
+  if (input.appId === "github") {
+    // GitHub expects the client secret in the body and only returns JSON when asked.
+    const res = await fetchImpl(provider.tokenUrl, {
+      method: "POST",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        accept: "application/json",
+      },
+      body: new URLSearchParams({
+        grant_type: "authorization_code",
+        code: input.code,
+        redirect_uri: input.redirectUri,
+        client_id: provider.clientId,
+        client_secret: provider.clientSecret,
+        // The authorize URL sends a PKCE challenge; GitHub requires the verifier.
+        code_verifier: input.verifier,
+      }),
+    });
+    if (!res.ok) throw new Error(`github token exchange failed (${res.status})`);
+    const body = (await res.json()) as TokenSet & { error?: string; error_description?: string };
+    if (!body.access_token) {
+      throw new Error(
+        `github token exchange: ${body.error_description ?? body.error ?? "no token"}`,
+      );
+    }
+    return body;
+  }
 
   if (input.appId === "notion") {
     const res = await fetchImpl(provider.tokenUrl, {
@@ -148,13 +181,25 @@ export async function fetchExternalAccountId(
   tokenBody: { workspace_id?: string; bot_id?: string },
   fetchImpl: typeof fetch = fetch,
 ): Promise<string> {
-  if (appId === "x") {
-    const res = await fetchImpl("https://api.x.com/2/users/me", {
+  if (appId === "keep") {
+    const res = await fetchImpl("https://www.googleapis.com/oauth2/v2/userinfo", {
       headers: { authorization: `Bearer ${token}` },
     });
-    if (!res.ok) throw new Error(`x users/me failed (${res.status})`);
-    const body = (await res.json()) as { data?: { id?: string } };
-    return body.data?.id ?? "primary";
+    if (!res.ok) throw new Error(`google userinfo failed (${res.status})`);
+    const body = (await res.json()) as { id?: string; email?: string };
+    return body.email ?? body.id ?? "primary";
+  }
+  if (appId === "github") {
+    const res = await fetchImpl("https://api.github.com/user", {
+      headers: {
+        authorization: `Bearer ${token}`,
+        accept: "application/vnd.github+json",
+        "user-agent": "omnibrain",
+      },
+    });
+    if (!res.ok) throw new Error(`github user failed (${res.status})`);
+    const body = (await res.json()) as { login?: string };
+    return body.login ?? "primary";
   }
   return tokenBody.bot_id ?? tokenBody.workspace_id ?? "primary";
 }
@@ -206,8 +251,13 @@ export async function syncConnection(
           url: item.url ?? null,
           canonicalUrl,
           title: item.title || item.url || "Untitled",
-          excerpt: item.note?.slice(0, 2000) ?? item.summary?.slice(0, 2000) ?? null,
+          excerpt:
+            item.note?.slice(0, item.kind === "note" ? 10_000 : 2000) ??
+            item.summary?.slice(0, 2000) ??
+            null,
+          filesJson: item.files ? JSON.stringify(item.files) : null,
           summary: item.summary ?? null,
+          lang: item.lang ?? null,
           tags: item.tags ?? [],
           capturedAt: item.capturedAt ?? Date.now(),
           contentHash,
@@ -216,13 +266,24 @@ export async function syncConnection(
         if (res.created) {
           created++;
           createdThisPage++;
-        } else if (duplicates.length < 50) {
-          duplicates.push({ title: item.title || item.url || "Untitled", url: item.url ?? null });
+        } else {
+          // Backfill content for items imported before the adapter fetched it.
+          if (item.note && (!res.item.excerpt || (item.files && !res.item.files_json))) {
+            await repo.updateItem(res.item.id, {
+              excerpt: item.note.slice(0, item.kind === "note" ? 10_000 : 2000),
+              lang: item.lang,
+              filesJson: item.files ? JSON.stringify(item.files) : undefined,
+              embeddingState: "pending",
+            });
+          }
+          if (duplicates.length < 50) {
+            duplicates.push({ title: item.title || item.url || "Untitled", url: item.url ?? null });
+          }
         }
       }
       cursor = page.nextCursor;
       pages++;
-      // X/Raindrop are revisited from the top: stop when a page is all known.
+      // Some adapters revisit from the top: stop when a page is all known.
       if (page.items.length > 0 && createdThisPage === 0) break;
     } while (cursor && pages < maxPages);
 

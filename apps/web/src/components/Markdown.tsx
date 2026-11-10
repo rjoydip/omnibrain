@@ -1,5 +1,6 @@
 import { parseMarkdown, type MarkdownBlock, type MarkdownInline } from "@omnibrain/core/markdown";
 import { Fragment, useMemo } from "react";
+import { NoteText } from "./NoteText";
 
 function Inlines({ nodes }: { nodes: MarkdownInline[] }) {
   return (
@@ -146,11 +147,7 @@ function Block({ block }: { block: MarkdownBlock }) {
         </div>
       );
     case "code":
-      return (
-        <pre className="overflow-x-auto rounded-[var(--radius)] bg-canvas/60 p-3 font-mono text-[11.5px] leading-relaxed">
-          <code>{block.value}</code>
-        </pre>
-      );
+      return <NoteText text={block.value} lang={block.lang ?? undefined} />;
     case "quote":
       return (
         <blockquote className="border-l-2 border-line-strong pl-3 text-muted">

@@ -5,7 +5,14 @@ import type { AtlasFilter } from "./components/Atlas";
 import { Recall } from "./components/Recall";
 import { BootSplash, MobileNav, Rail, SectionLoading, TopBar } from "./components/Shell";
 import { type Account, ApiError, api, type Item, type Me } from "./lib/api";
-import type { Accent, ItemLayout, ItemStatus, Theme, View } from "./lib/nav";
+import {
+  type Accent,
+  type ItemLayout,
+  type ItemStatus,
+  type Theme,
+  VIEW_LABEL,
+  type View,
+} from "./lib/nav";
 import { AuthScreen } from "./views/Auth";
 import { Inspector } from "./views/Inspector";
 import { Knowledge } from "./views/Knowledge";
@@ -107,7 +114,6 @@ export default function App() {
   const [recallOpen, setRecallOpen] = useState(false);
   const [recallSeed, setRecallSeed] = useState("");
   const [noteOpen, setNoteOpen] = useState(false);
-  const [importPreferred, setImportPreferred] = useState<string | null>(null);
   const refreshAbort = useRef<AbortController | null>(null);
   const lastStatus = useRef<ItemStatus>(itemStatus);
   const urlSynced = useRef(false);
@@ -124,6 +130,10 @@ export default function App() {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem("omnibrain.theme.v2", theme);
   }, [theme]);
+
+  useEffect(() => {
+    document.title = me ? `${VIEW_LABEL[view]} — OmniBrain` : "Sign in — OmniBrain";
+  }, [me, view]);
 
   useEffect(() => {
     document.documentElement.dataset.accent = accent;
@@ -503,10 +513,7 @@ export default function App() {
           onRecall={() => openRecall("")}
           onCapture={() => openRecall("")}
           onNote={() => setNoteOpen(true)}
-          onImport={() => {
-            setImportPreferred(null);
-            navigate("import");
-          }}
+          onImport={() => navigate("import")}
           onSettings={() => navigate("settings")}
         />
 
@@ -537,10 +544,7 @@ export default function App() {
                     onLayout={setItemLayout}
                     allSources={knownSources}
                     onOpenRecall={() => openRecall("")}
-                    onNavigateImport={() => {
-                      setImportPreferred(null);
-                      navigate("import");
-                    }}
+                    onNavigateImport={() => navigate("import")}
                     theme={theme}
                     hasMore={Boolean(nextCursor)}
                     loadingMore={loadingMore}
@@ -549,24 +553,10 @@ export default function App() {
                 )
               ) : null}
 
-              {view === "apps" ? (
-                <AppsView
-                  toast={toast}
-                  onNavigateImport={(appId) => {
-                    setImportPreferred(appId);
-                    navigate("import");
-                  }}
-                  onChanged={() => void refresh()}
-                  preferred={null}
-                />
-              ) : null}
+              {view === "apps" ? <AppsView toast={toast} onChanged={() => void refresh()} /> : null}
 
               {view === "import" ? (
-                <ImportView
-                  toast={toast}
-                  onChanged={() => void refresh()}
-                  preferred={importPreferred}
-                />
+                <ImportView toast={toast} onChanged={() => void refresh()} />
               ) : null}
 
               {view === "mcp" ? (

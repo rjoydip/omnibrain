@@ -32,10 +32,10 @@ export interface Env {
   EMAIL_FROM?: string;
   NOTION_CLIENT_ID?: string;
   NOTION_CLIENT_SECRET?: string;
-  X_CLIENT_ID?: string;
-  X_CLIENT_SECRET?: string;
-  RAINDROP_CLIENT_ID?: string;
-  RAINDROP_CLIENT_SECRET?: string;
+  GOOGLE_CLIENT_ID?: string;
+  GOOGLE_CLIENT_SECRET?: string;
+  GH_CLIENT_ID?: string;
+  GH_CLIENT_SECRET?: string;
 }
 
 export interface Variables {

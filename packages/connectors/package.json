@@ -5,6 +5,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./browser": "./src/browser.ts",
+    "./github": "./src/github.ts",
     "./keep": "./src/keep.ts"
   },
   "dependencies": {

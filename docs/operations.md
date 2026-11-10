@@ -2,17 +2,17 @@
 
 ## Environment variables
 
-| Variable                    | Required      | Purpose                                                     |
-| --------------------------- | ------------- | ----------------------------------------------------------- |
-| `AUTH_SECRET`               | yes           | OTP pepper + session/signing fallback; 32+ random chars     |
-| `TOKEN_KEY`                 | recommended   | AES-GCM key for connector tokens; defaults to `AUTH_SECRET` |
-| `APP_ORIGIN`                | yes (prod)    | Web origin for CORS, cookies, OAuth redirects               |
-| `NOTION_CLIENT_ID/SECRET`   | optional      | OAuth app; prefer App Store → credentials                   |
-| `X_CLIENT_ID/SECRET`        | optional      | OAuth app; prefer App Store → credentials                   |
-| `RAINDROP_CLIENT_ID/SECRET` | optional      | OAuth app; prefer App Store → credentials                   |
-| `EMAIL_FROM`                | recommended   | Verified sender for Cloudflare Email Service                |
-| `EMAIL` (binding)           | yes in prod   | `send_email` binding provisioned by `alchemy.run.ts`        |
-| `DEV_MODE`                  | never in prod | Returns the OTP to the dev UI; dev server sets it           |
+| Variable                  | Required      | Purpose                                                     |
+| ------------------------- | ------------- | ----------------------------------------------------------- |
+| `AUTH_SECRET`             | yes           | OTP pepper + session/signing fallback; 32+ random chars     |
+| `TOKEN_KEY`               | recommended   | AES-GCM key for connector tokens; defaults to `AUTH_SECRET` |
+| `APP_ORIGIN`              | yes (prod)    | Web origin for CORS, cookies, OAuth redirects               |
+| `NOTION_CLIENT_ID/SECRET` | optional      | OAuth app; enables one-click Notion sign-in                 |
+| `GOOGLE_CLIENT_ID/SECRET` | optional      | OAuth client for Keep; enables one-click Google sign-in     |
+| `GH_CLIENT_ID/SECRET`     | optional      | OAuth app; not needed when using a personal access token    |
+| `EMAIL_FROM`              | recommended   | Verified sender for Cloudflare Email Service                |
+| `EMAIL` (binding)         | yes in prod   | `send_email` binding provisioned by `alchemy.run.ts`        |
+| `DEV_MODE`                | never in prod | Returns the OTP to the dev UI; dev server sets it           |
 
 Generate secrets with `openssl rand -base64 32` or `bun -e 'console.log(crypto.randomUUID())'`
 (repeat/cat for length).

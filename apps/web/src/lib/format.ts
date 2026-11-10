@@ -8,6 +8,7 @@ export const SOURCE_META: Record<
   keep: { label: "Keep", glyph: "K", tone: "amber" },
   x: { label: "X", glyph: "X", tone: "coral" },
   raindrop: { label: "Raindrop", glyph: "R", tone: "mint" },
+  github: { label: "Gist", glyph: "GH", tone: "muted" },
   readwise: { label: "Readwise", glyph: "◈", tone: "cobalt" },
   obsidian: { label: "Obsidian", glyph: "◆", tone: "muted" },
   mcp: { label: "MCP", glyph: "M", tone: "mint" },

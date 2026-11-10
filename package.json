@@ -2,6 +2,7 @@
   "name": "omnibrain",
   "private": true,
   "type": "module",
+  "description": "Multi-tenant knowledge recall: bookmarks, Notion pages, X posts and Keep imports in one honest, cited search",
   "workspaces": [
     "apps/*",
     "packages/*"

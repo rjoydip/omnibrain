@@ -408,9 +408,18 @@ describe("api", () => {
     const { apps } = (await catalog.json()) as {
       apps: Array<{ id: string; configured: boolean; auth: string }>;
     };
-    expect(apps.length).toBe(5);
+    expect(apps.length).toBe(4);
     const notion = apps.find((a) => a.id === "notion");
     expect(notion?.configured).toBe(false);
+
+    // Env credentials make an OAuth app one-click, no in-app setup required.
+    env.GH_CLIENT_ID = "gh-id";
+    env.GH_CLIENT_SECRET = "gh-secret";
+    const configured = await app.request("/api/v1/apps", { headers: { cookie } }, env);
+    const { apps: afterEnv } = (await configured.json()) as {
+      apps: Array<{ id: string; configured: boolean }>;
+    };
+    expect(afterEnv.find((a) => a.id === "github")?.configured).toBe(true);
 
     const oauth = await app.request(
       "/api/v1/apps/connections",
@@ -423,12 +432,34 @@ describe("api", () => {
 
     const importOnly = await app.request(
       "/api/v1/apps/connections",
-      { method: "POST", headers: json(cookie), body: JSON.stringify({ app_id: "keep" }) },
+      { method: "POST", headers: json(cookie), body: JSON.stringify({ app_id: "browser" }) },
       env,
     );
     expect(importOnly.status).toBe(400);
     expect(((await importOnly.json()) as { error: { code: string } }).error.code).toBe(
       "bad_request",
     );
+
+    // GitHub can install with a pasted token instead of an OAuth app.
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) =>
+      String(input).includes("/gists")
+        ? new Response("[]", { status: 200 })
+        : new Response(JSON.stringify({ login: "octocat" }), { status: 200 })) as typeof fetch;
+    try {
+      const tokenConnect = await app.request(
+        "/api/v1/apps/connections",
+        {
+          method: "POST",
+          headers: json(cookie),
+          body: JSON.stringify({ app_id: "github", token: "ghp_test" }),
+        },
+        env,
+      );
+      expect(tokenConnect.status).toBe(201);
+      expect(((await tokenConnect.json()) as { ok: boolean }).ok).toBe(true);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
   });
 });

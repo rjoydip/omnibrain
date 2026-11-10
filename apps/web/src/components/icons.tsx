@@ -220,6 +220,27 @@ export const GlobeIcon = (p: IconProps) => (
   </Icon>
 );
 
+export const FileIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M6 3h8l4 4v14H6z" />
+    <path d="M14 3v5h4" />
+  </Icon>
+);
+
+export const DownloadIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M12 4v11M8 11l4 4 4-4" />
+    <path d="M4 19h16" />
+  </Icon>
+);
+
+export const SignInIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3" />
+    <path d="M4 12h10M10 8l4 4-4 4" />
+  </Icon>
+);
+
 export const LockIcon = (p: IconProps) => (
   <Icon {...p}>
     <rect x="4.5" y="10" width="15" height="10" rx="2" />

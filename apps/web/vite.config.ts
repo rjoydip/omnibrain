@@ -1,5 +1,6 @@
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
+import Icons from "unplugin-icons/vite";
 import { defineConfig } from "vite";
 
 // Injected at build time only: the dev server needs Vite's inline refresh preamble.
@@ -19,6 +20,7 @@ export default defineConfig({
   plugins: [
     react(),
     tailwindcss(),
+    Icons({ compiler: "jsx" }),
     {
       name: "omnibrain-csp",
       apply: "build",

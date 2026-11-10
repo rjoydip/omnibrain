@@ -61,8 +61,9 @@ all pass. The initial JS bundle must stay **≤ 200 KB gzip**; `Import`, `Apps`,
   (back/forward + deep links). Theme, accent and panel width stay in localStorage. No global store.
 - **Server data is the source of truth.** Mutations update the list optimistically, then confirm;
   failed writes resync with `refresh()`. In-flight `refresh()` calls are abortable.
-- **Connectors:** OAuth client ID/secret can be stored encrypted in the DB (App Store → credentials);
-  env vars are only a fallback. Never log tokens or secrets.
+- **Connectors:** OAuth client ID/secret come from the server environment (`*_CLIENT_ID` / `*_CLIENT_SECRET`)
+  so the App Store can do one-click sign-in; DB-stored credentials remain an API-only fallback. Never log
+  tokens or secrets.
 - **MCP:** tools are namespaced `omnibrain_search|fetch|recent|save_note`; bearer API key auth;
   every call is rate-limited, metered and audited.
 
@@ -87,7 +88,7 @@ all pass. The initial JS bundle must stay **≤ 200 KB gzip**; `Import`, `Apps`,
 ## Local dev notes
 
 - Demo login: `demo@omnibrain.local`; the OTP is printed in the API terminal and returned as `dev_code`.
-- Dev DB is `.data/dev.db`; demo items are seeded once when the DB is empty. Don't wipe user data.
+- Dev DB is `.data/dev.db`; it starts empty and only holds what you add. Don't wipe user data.
 - Dev servers may already be running; don't kill them unless a port conflict requires it.
 - Test data created during verification must be cleaned up (items, keys, connections, imports).
 

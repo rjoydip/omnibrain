@@ -29,6 +29,21 @@
   --radius: 8px;
   --shadow-overlay: none;
   --signal: var(--accent);
+  /* Fixed syntax palette: colorful, independent of the theme accent. */
+  --syn-comment: #8a8f98;
+  --syn-string: #4fa85c;
+  --syn-number: #c46a2d;
+  --syn-keyword: #9d4edd;
+  --syn-function: #2f7ed8;
+  --syn-type: #b8860b;
+  --syn-punct: #7a8290;
+  /* Official brand colors; monochrome marks follow the text color per theme. */
+  --brand-notion: #e6e8ea;
+  --brand-x: #e6e8ea;
+  --brand-github: #e6e8ea;
+  --brand-keep: #ffbb00;
+  --brand-raindrop: #2e8fff;
+  --brand-browser: #f9ab00;
   color-scheme: dark;
 }
 
@@ -57,6 +72,9 @@
   --grid-line: oklch(0.915 0.004 85);
   --shadow-overlay: none;
   --signal: var(--accent);
+  --brand-notion: #1c1a16;
+  --brand-x: #1c1a16;
+  --brand-github: #1c1a16;
   color-scheme: light;
 }
 
@@ -85,6 +103,9 @@
   --grid-line: #2a2a2a;
   --shadow-overlay: none;
   --signal: var(--accent);
+  --brand-notion: #ffffff;
+  --brand-x: #ffffff;
+  --brand-github: #ffffff;
   color-scheme: dark;
 }
 

@@ -34,6 +34,7 @@ export interface ItemRow {
   title: string;
   excerpt: string | null;
   content_r2_key: string | null;
+  files_json: string | null;
   summary: string | null;
   lang: string | null;
   author: string | null;

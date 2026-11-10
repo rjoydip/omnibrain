@@ -21,6 +21,7 @@ export interface ItemInput {
   title: string;
   excerpt?: string | null;
   contentR2Key?: string | null;
+  filesJson?: string | null;
   summary?: string | null;
   lang?: string | null;
   author?: string | null;
@@ -139,9 +140,9 @@ export async function createItem(
     await db.run(
       `insert into items (
         id, workspace_id, kind, source, connection_id, external_id, url, canonical_url,
-        title, excerpt, content_r2_key, summary, lang, author, published_at, captured_at,
+        title, excerpt, content_r2_key, files_json, summary, lang, author, published_at, captured_at,
         content_hash, tags_text, embedding_state, created_at, updated_at
-      ) values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      ) values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         id,
         ws,
@@ -154,6 +155,7 @@ export async function createItem(
         input.title.slice(0, 500),
         input.excerpt ?? null,
         input.contentR2Key ?? null,
+        input.filesJson ?? null,
         input.summary ?? null,
         input.lang ?? null,
         input.author ?? null,
@@ -234,6 +236,8 @@ export interface ItemPatch {
   title?: string;
   summary?: string;
   excerpt?: string;
+  lang?: string;
+  filesJson?: string;
   tags?: string[];
   embeddingState?: ItemRow["embedding_state"];
   contentR2Key?: string;
@@ -251,6 +255,8 @@ export async function updateItem(
       title = coalesce(?, title),
       summary = coalesce(?, summary),
       excerpt = coalesce(?, excerpt),
+      lang = coalesce(?, lang),
+      files_json = coalesce(?, files_json),
       content_r2_key = coalesce(?, content_r2_key),
       embedding_state = coalesce(?, embedding_state),
       updated_at = ?
@@ -259,6 +265,8 @@ export async function updateItem(
       patch.title ?? null,
       patch.summary ?? null,
       patch.excerpt ?? null,
+      patch.lang ?? null,
+      patch.filesJson ?? null,
       patch.contentR2Key ?? null,
       patch.embeddingState ?? null,
       Date.now(),

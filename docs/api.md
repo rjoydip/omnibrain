@@ -194,7 +194,7 @@ OAuth callback (public, state-bound): `GET /oauth/:app/callback`.
 | Method | Path                   | Notes                                                         |
 | ------ | ---------------------- | ------------------------------------------------------------- |
 | GET    | `/imports`             | Last 20 imports                                               |
-| POST   | `/imports`             | `{ "kind": "browser_html" \| "keep_takeout", "total": 1200 }` |
+| POST   | `/imports`             | `{ "kind": "browser_html" \| "obsidian_zip", "total": 1200 }` |
 | POST   | `/imports/:id/batches` | `{ "items": [...] }` up to 500                                |
 | GET    | `/imports/:id`         | Progress                                                      |
 | POST   | `/imports/:id/finish`  | `{ "status": "done" \| "failed", "error"?: "…" }`             |

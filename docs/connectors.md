@@ -6,13 +6,12 @@ scopes and server-side fetch, and avoids a Workers-for-Platforms runtime.
 
 ## Catalog
 
-| App               | Auth           | Sync           | Status      | Notes                                             |
-| ----------------- | -------------- | -------------- | ----------- | ------------------------------------------------- |
-| Browser bookmarks | none           | file import    | GA          | Chrome/Edge/Firefox/Safari HTML, parsed on-device |
-| Notion            | OAuth 2        | cursor poll    | Beta        | Public integration; ~3 req/s                      |
-| X bookmarks       | OAuth 2 + PKCE | pagination     | Beta        | Paid API tier required; archive import fallback   |
-| Raindrop.io       | OAuth 2        | pagination     | Beta        | Collections + tags                                |
-| Google Keep       | none           | Takeout import | Import only | No consumer API exists                            |
+| App               | Auth            | Sync        | Status | Notes                                             |
+| ----------------- | --------------- | ----------- | ------ | ------------------------------------------------- |
+| Browser bookmarks | none            | file import | GA     | Chrome/Edge/Firefox/Safari HTML, parsed on-device |
+| Notion            | OAuth 2         | cursor poll | Beta   | Public integration; ~3 req/s                      |
+| GitHub            | OAuth 2 / token | page poll   | Beta   | Gists; PAT works without an OAuth app             |
+| Google Keep       | OAuth 2         | cursor poll | Beta   | Keep API requires a Google Workspace account      |
 
 Readwise Reader, Obsidian and Pocket are intentionally absent until their importers exist. Pocket's
 service was discontinued in July 2025.
@@ -46,33 +45,33 @@ Local: `http://localhost:8787/api/v1/oauth/<app>/callback`.
 
 1. Create a public integration at <https://www.notion.so/my-integrations>.
 2. Add the redirect URI above.
-3. Add the client ID and secret in App Store → credentials (stored encrypted in the database).
-   `NOTION_CLIENT_ID` / `NOTION_CLIENT_SECRET` remain an optional env fallback.
+3. Set `NOTION_CLIENT_ID` / `NOTION_CLIENT_SECRET` in the server environment, then restart.
 4. Requested scope: `read_content` (the integration also needs pages shared with it in Notion).
 
 Exchange uses JSON + Basic auth; the adapter enumerates pages through `POST /v1/search` sorted by
 last edited time. There is no reliable page-content webhook, so sync is a 15-minute cursor poll.
 
-### X
+### Google Keep
 
-1. Create an OAuth 2.0 app with confidential client settings.
-2. Enable the redirect URI above and scopes `bookmark.read tweet.read users.read offline.access`.
-3. Add the client ID and secret in App Store → credentials (or set `X_CLIENT_ID` /
-   `X_CLIENT_SECRET` as an env fallback).
-4. Confirm the account has a paid API tier with bookmark access.
+1. Create an OAuth client (Web application) in Google Cloud Console.
+2. Enable the Google Keep API for the project and add the redirect URI above.
+3. Set `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` in the server environment, then restart.
 
-The adapter calls `/2/users/me` once to resolve the external account id, then
-`/2/users/:id/bookmarks`. Pagination is token-based and has no `since_id`; sync stops when a page
-contains no newly created items.
+Requested scope is `https://www.googleapis.com/auth/keep.readonly`. The adapter pages
+`GET /v1/notes?pageSize=100&pageToken=…`; the Keep API is only available to Google Workspace
+accounts, so personal Gmail accounts cannot connect.
 
-### Raindrop.io
+### GitHub
 
-1. Create an OAuth app in Raindrop settings.
-2. Add the redirect URI.
-3. Add the client ID and secret in App Store → credentials (or set `RAINDROP_CLIENT_ID` /
-   `RAINDROP_CLIENT_SECRET` as an env fallback).
+1. Create an OAuth app at <https://github.com/settings/developers> (optional).
+2. Add the redirect URI above.
+3. Set `GH_CLIENT_ID` / `GH_CLIENT_SECRET` in the server environment, then restart.
 
-The adapter pages `GET /rest/v1/raindrops/0?page=N&perpage=50&sort=-created`.
+Sign-in is one click once those vars are present: the App Store redirects straight to the
+provider. GitHub also accepts a pasted personal access token, so the OAuth app is optional.
+`POST /apps/connections` with `{ app_id, token }` verifies the token through
+`GET /user`, stores it encrypted, and starts the backfill. The adapter pages
+`GET /gists?per_page=100&page=N`; private gists need the `gist` scope.
 
 If a provider is not configured, `POST /apps/connections` returns `connector_not_configured` and the
 UI explains which environment variable is missing. It never fakes an install.
@@ -86,17 +85,11 @@ Safari. It handles nested `<DL>` folders (folders become tags), decodes entities
 (seconds → ms), drops non-HTTP URLs, and dedupes by URL. Parsing runs in the browser, so browsing
 history never leaves the machine beyond the items the user imports.
 
-### Google Keep Takeout
-
-`packages/connectors/src/keep.ts` accepts Takeout JSON and maps `title`, `textContent`,
-`listContent` (checkboxes), `labels`, `createdTimestampUsec`, and skips trashed notes. This is a
-one-way import by design. The Keep API is Google Workspace-only and requires domain-wide delegation,
-so it is not a consumer option.
-
 ## Adding a connector
 
 1. **Manifest** in `packages/connectors/src/registry.ts`: id, name, category, description, auth,
-   scopes, capabilities, schedule, glyph/tone. Keep the description honest about limits.
+   scopes, capabilities, schedule, glyph/tone. Add `tokenAuth: true` when a pasted access token is
+   an alternative to OAuth. Keep the description honest about limits.
 2. **Adapter** (`packages/connectors/src/<app>.ts`): export a `list()` that returns
    `{ items: ConnectorItem[], nextCursor }`. Use the injected `fetchImpl` so tests never hit the
    network.
@@ -137,7 +130,7 @@ export async function listExample(input: {
 
 - Tokens are decrypted only inside `syncConnection`, never returned by an API.
 - Upserts are idempotent: `(workspace_id, connection_id, external_id)` plus canonical URL dedupe.
-- A page where nothing is new stops the loop (X/Raindrop revisit from the top).
+- A page where nothing is new stops the loop.
 - `maxPages` bounds a single run; the cursor persists for the next run.
 - Any non-2xx marks `degraded`, stores a truncated error, and leaves existing items intact.
 - Pausing stops scheduled/manual sync but keeps the cursor.
@@ -146,6 +139,5 @@ export async function listExample(input: {
 
 ## What not to build
 
-- Keep live sync. There is no consumer API; an unofficial client would be fragile and unsafe.
 - Arbitrary plugin code. New sources are code contributions, not marketplace uploads.
 - Silent "installed" states. If credentials are missing, the UI says so.

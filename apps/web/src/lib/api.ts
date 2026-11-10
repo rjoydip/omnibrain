@@ -69,6 +69,7 @@ export interface Item {
   title: string;
   excerpt: string | null;
   content_r2_key: string | null;
+  files_json: string | null;
   summary: string | null;
   lang: string | null;
   author: string | null;
@@ -165,6 +166,7 @@ export interface AppInfo {
   tone: "amber" | "cobalt" | "mint" | "coral" | "muted";
   schedule?: string;
   configured: boolean;
+  token_auth?: boolean;
   credential_source: "db" | "env" | null;
   installed: boolean;
   connection: {
@@ -281,18 +283,14 @@ export const api = {
   workspaces: () => request<{ workspaces: Workspace[] }>("/workspaces"),
 
   apps: () => request<{ apps: AppInfo[] }>("/apps"),
-  setCredentials: (app_id: string, clientId: string, clientSecret: string) =>
-    request<{ ok: boolean }>(`/apps/${app_id}/credentials`, {
-      method: "PUT",
-      body: { clientId, clientSecret },
-    }),
-  deleteCredentials: (app_id: string) =>
-    request<{ ok: boolean }>(`/apps/${app_id}/credentials`, { method: "DELETE" }),
-  connect: (app_id: string) =>
-    request<{ authorize_url?: string; state?: string }>("/apps/connections", {
-      method: "POST",
-      body: { app_id },
-    }),
+  connect: (app_id: string, token?: string) =>
+    request<{ authorize_url?: string; state?: string; connection_id?: string }>(
+      "/apps/connections",
+      {
+        method: "POST",
+        body: token ? { app_id, token } : { app_id },
+      },
+    ),
   syncConnection: (id: string) =>
     request<{
       ok: boolean;
@@ -310,7 +308,7 @@ export const api = {
       method: "DELETE",
     }),
 
-  createImport: (kind: "browser_html" | "keep_takeout" | "obsidian_zip", total: number) =>
+  createImport: (kind: "browser_html" | "obsidian_zip", total: number) =>
     request<{ import: ImportRow }>("/imports", { method: "POST", body: { kind, total } }),
   importBatch: (
     id: string,
