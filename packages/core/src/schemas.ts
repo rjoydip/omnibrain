@@ -14,7 +14,6 @@ export const SOURCES = [
   "web",
   "browser",
   "notion",
-  "keep",
   "x",
   "raindrop",
   "github",

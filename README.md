@@ -4,7 +4,7 @@
 
 # OmniBrain
 
-Multi-tenant knowledge recall: bookmarks, Notion pages, X posts and Keep imports in one honest, cited search. Bun + TypeScript + Cloudflare + Alchemy.
+Multi-tenant knowledge recall: bookmarks, Notion pages, GitHub gists and X posts in one honest, cited search. Bun + TypeScript + Cloudflare + Alchemy.
 
 The full product and architecture plan is in [PLAN.md](./PLAN.md). This repo is the working implementation of the first vertical slice.
 
@@ -52,7 +52,7 @@ Production compute is workerd. Bun is the toolchain, not the deployed runtime.
 - Email OTP signup/login, workspaces, roles, HttpOnly sessions, CSRF double-submit + origin checks,
   security headers, and rate limits (including a durable OTP resend cooldown).
 - Items CRUD, trash + 30-day purge, per-tenant scoping enforced by `forWorkspace()`.
-- Browser bookmark HTML parser and Google Keep Takeout parser (both run client-side in the import UI).
+- Browser bookmark HTML parser (runs client-side in the import UI).
 - Batch import with canonical-URL dedupe and idempotent re-import.
 - Hybrid search: FTS5 lexical + Vectorize semantic fused with RRF, recency boost, source diversity, optional cited answer.
 - Enrichment pipeline: SSRF-guarded fetch, regex readability, summary/tags, chunking, embeddings, R2 snapshot.
@@ -108,7 +108,7 @@ packages/
   auth/             OTP + sessions
   ai/               chunking, prompts, embeddings, answer synthesis
   search/           canonicalize, FTS query, RRF, recency/diversity
-  connectors/       manifests, bookmark/Keep parsers, OAuth helpers, adapters
+  connectors/       manifests, bookmark parser, OAuth helpers, adapters
   ui/               tokens + primitives
 alchemy.run.ts      the infrastructure graph
 ```

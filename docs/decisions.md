@@ -26,13 +26,13 @@ Short ADRs for choices made while implementing PLAN.md. Each one names the ceili
 
 **Ceiling:** MCP traffic shares the API isolate and CPU budget. Split it out when MCP traffic exceeds ~20% of requests or needs independent scaling.
 
-## ADR-4: Four connectors, with honest labels
+## ADR-4: Three connectors, with honest labels
 
-**Decision:** catalog is Browser (file import), Notion, GitHub and Google Keep. X and Raindrop are parked until their adapters are re-enabled. Removed Readwise/Obsidian cards until their importers exist.
+**Decision:** catalog is Browser (file import), Notion and GitHub. X and Raindrop are parked until their adapters are re-enabled. Removed Readwise/Obsidian cards until their importers exist.
 
-**Why:** dead cards are worse than fewer cards. Keep uses Google OAuth and says the Keep API needs a Workspace account; it never claims personal Gmail works.
+**Why:** dead cards are worse than fewer cards. Google Keep was dropped: its API is Workspace-only and only authorizes through domain-wide delegation, so a plain OAuth consent flow returns `invalid_scope`. Nothing in the catalog should require an admin console detour to connect.
 
-**Ceiling:** no Readwise highlights, Obsidian markdown zip, X, Raindrop, or Pocket (discontinued) yet. Add each with its adapter and a test, not a placeholder card.
+**Ceiling:** no Readwise highlights, Obsidian markdown zip, X, Raindrop, Keep, or Pocket (discontinued) yet. Add each with its adapter and a test, not a placeholder card.
 
 ## ADR-5: Regex readability, not a DOM engine
 

@@ -28,15 +28,6 @@ export function providerFor(env: Env, appId: string): ProviderConfig | null {
         clientId: env.NOTION_CLIENT_ID,
         clientSecret: env.NOTION_CLIENT_SECRET,
       };
-    case "keep":
-      return {
-        authorizationUrl: "https://accounts.google.com/o/oauth2/v2/auth",
-        tokenUrl: "https://oauth2.googleapis.com/token",
-        scopes: ["https://www.googleapis.com/auth/keep.readonly"],
-        pkce: true,
-        clientId: env.GOOGLE_CLIENT_ID,
-        clientSecret: env.GOOGLE_CLIENT_SECRET,
-      };
     case "github":
       return {
         authorizationUrl: "https://github.com/login/oauth/authorize",
@@ -89,19 +80,14 @@ export function authorizeUrl(
       scopes: provider.scopes,
       state,
       codeChallenge: challenge,
-      extra:
-        appId === "notion"
-          ? { owner: "user" }
-          : appId === "keep"
-            ? { access_type: "offline", prompt: "consent" }
-            : undefined,
+      extra: appId === "notion" ? { owner: "user" } : undefined,
     });
   });
 }
 
 /**
- * Notion uses JSON + Basic auth; GitHub and Google use form encoding. Both
- * paths are explicit so the token request is never a guess.
+ * Notion uses JSON + Basic auth; GitHub uses form encoding. Both paths are
+ * explicit so the token request is never a guess.
  */
 export async function exchangeForApp(input: {
   env: Env;
@@ -181,14 +167,6 @@ export async function fetchExternalAccountId(
   tokenBody: { workspace_id?: string; bot_id?: string },
   fetchImpl: typeof fetch = fetch,
 ): Promise<string> {
-  if (appId === "keep") {
-    const res = await fetchImpl("https://www.googleapis.com/oauth2/v2/userinfo", {
-      headers: { authorization: `Bearer ${token}` },
-    });
-    if (!res.ok) throw new Error(`google userinfo failed (${res.status})`);
-    const body = (await res.json()) as { id?: string; email?: string };
-    return body.email ?? body.id ?? "primary";
-  }
   if (appId === "github") {
     const res = await fetchImpl("https://api.github.com/user", {
       headers: {

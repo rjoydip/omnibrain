@@ -5,7 +5,6 @@ export const SOURCE_META: Record<
   web: { label: "Web", glyph: "◍", tone: "cobalt" },
   browser: { label: "Bookmarks", glyph: "B", tone: "amber" },
   notion: { label: "Notion", glyph: "N", tone: "cobalt" },
-  keep: { label: "Keep", glyph: "K", tone: "amber" },
   x: { label: "X", glyph: "X", tone: "coral" },
   raindrop: { label: "Raindrop", glyph: "R", tone: "mint" },
   github: { label: "Gist", glyph: "GH", tone: "muted" },

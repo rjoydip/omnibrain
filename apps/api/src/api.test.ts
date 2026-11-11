@@ -408,7 +408,7 @@ describe("api", () => {
     const { apps } = (await catalog.json()) as {
       apps: Array<{ id: string; configured: boolean; auth: string }>;
     };
-    expect(apps.length).toBe(4);
+    expect(apps.length).toBe(3);
     const notion = apps.find((a) => a.id === "notion");
     expect(notion?.configured).toBe(false);
 

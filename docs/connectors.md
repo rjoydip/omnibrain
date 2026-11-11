@@ -11,14 +11,13 @@ scopes and server-side fetch, and avoids a Workers-for-Platforms runtime.
 | Browser bookmarks | none            | file import | GA     | Chrome/Edge/Firefox/Safari HTML, parsed on-device |
 | Notion            | OAuth 2         | cursor poll | Beta   | Public integration; ~3 req/s                      |
 | GitHub            | OAuth 2 / token | page poll   | Beta   | Gists; PAT works without an OAuth app             |
-| Google Keep       | OAuth 2         | cursor poll | Beta   | Keep API requires a Google Workspace account      |
 
 Readwise Reader, Obsidian and Pocket are intentionally absent until their importers exist. Pocket's
 service was discontinued in July 2025.
 
 ## Connection lifecycle
 
-```
+```sh
 available ──install──► authorizing ──callback──► connected
                                       │             │
                                       │             ├─ pause ──► paused ──resume──► connected
@@ -33,33 +32,54 @@ keep.
 
 ## OAuth setup
 
-The API is the OAuth client. Redirect URI for all providers:
+The API is the OAuth client. The provider console needs one redirect URI per environment:
 
-```
+```sh
 https://<api-host>/api/v1/oauth/<app>/callback
+http://localhost:8787/api/v1/oauth/<app>/callback   # local dev
 ```
 
-Local: `http://localhost:8787/api/v1/oauth/<app>/callback`.
+`<app>` is the connector id from `packages/connectors/src/registry.ts`, **not** the provider name:
+
+| Provider | App id   | Environment variables                      | Redirect URI suffix |
+| -------- | -------- | ------------------------------------------ | ------------------- |
+| Notion   | `notion` | `NOTION_CLIENT_ID`, `NOTION_CLIENT_SECRET` | `/oauth/notion/…`   |
+| GitHub   | `github` | `GH_CLIENT_ID`, `GH_CLIENT_SECRET`         | `/oauth/github/…`   |
+
+The callback route is built from `app.id` in `apps/api/src/routes/apps.ts`, so the id and the
+provider name must stay in sync when a connector is added.
+
+### Where credentials live
+
+Credentials are resolved per request by `resolveProvider()` in `apps/api/src/services/connectors.ts`.
+A DB row wins; environment variables are the fallback.
+
+1. **Environment** (normal path, one-click sign-in). Add the vars to `.env` at the repo root — Bun
+   loads it for `bun run dev`. `.env.example` lists every name, commented out. Production values are
+   wired through `alchemy.run.ts`.
+2. **Database** (API-only fallback). `PUT /api/v1/apps/<app>/credentials` with
+   `{ "client_id": "…", "client_secret": "…" }` stores the secret encrypted with `TOKEN_KEY`
+   (falling back to `AUTH_SECRET`); `DELETE` on the same path clears it. The App Store shows the
+   source as `credential_source: "db" | "env"`.
+
+Restart the dev server after changing `.env` — the vars are read at boot. Secrets are never logged
+and never returned by an API; the secret is only decrypted inside the token exchange and
+`syncConnection`.
 
 ### Notion
 
-1. Create a public integration at <https://www.notion.so/my-integrations>.
-2. Add the redirect URI above.
-3. Set `NOTION_CLIENT_ID` / `NOTION_CLIENT_SECRET` in the server environment, then restart.
-4. Requested scope: `read_content` (the integration also needs pages shared with it in Notion).
+1. Open <https://www.notion.so/my-integrations> and create a **new integration**.
+2. Choose type **Public** (OAuth), name it, and pick the workspace it belongs to.
+3. Under **OAuth Domain & URIs**, add both redirect URIs above.
+4. Capabilities: enable **Read content** — that is the `read_content` scope this connector requests.
+5. Copy the **OAuth client ID** and **OAuth client secret** from the integration's configuration.
+6. Set `NOTION_CLIENT_ID` / `NOTION_CLIENT_SECRET` in `.env` and restart.
+7. After connecting, each page or database must be **shared with the integration** in Notion; the
+   integration only sees what is explicitly shared.
 
-Exchange uses JSON + Basic auth; the adapter enumerates pages through `POST /v1/search` sorted by
-last edited time. There is no reliable page-content webhook, so sync is a 15-minute cursor poll.
-
-### Google Keep
-
-1. Create an OAuth client (Web application) in Google Cloud Console.
-2. Enable the Google Keep API for the project and add the redirect URI above.
-3. Set `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` in the server environment, then restart.
-
-Requested scope is `https://www.googleapis.com/auth/keep.readonly`. The adapter pages
-`GET /v1/notes?pageSize=100&pageToken=…`; the Keep API is only available to Google Workspace
-accounts, so personal Gmail accounts cannot connect.
+Exchange uses JSON + Basic auth (not form-encoded), so Notion is handled specially in
+`packages/connectors`. The adapter enumerates pages through `POST /v1/search` sorted by last edited
+time. There is no reliable page-content webhook, so sync is a 15-minute cursor poll at ~3 req/s.
 
 ### GitHub
 
@@ -73,8 +93,21 @@ provider. GitHub also accepts a pasted personal access token, so the OAuth app i
 `GET /user`, stores it encrypted, and starts the backfill. The adapter pages
 `GET /gists?per_page=100&page=N`; private gists need the `gist` scope.
 
-If a provider is not configured, `POST /apps/connections` returns `connector_not_configured` and the
-UI explains which environment variable is missing. It never fakes an install.
+If a provider is not configured, `POST /apps/connections` returns `connector_not_configured` with
+"`<App> OAuth credentials are missing. Add them in the App Store.`" It never fakes an install.
+
+### Verifying a setup
+
+1. `bun run dev` and open the App Store. A configured provider shows a one-click **Install**; a
+   missing one fails with `connector_not_configured`.
+2. Install → the provider consent screen → back to `/?view=apps&installed=<app>&fetched=…&created=…`.
+   The callback runs the first sync (one page, to stay within Worker subrequest limits), so the
+   App Store opens with items already imported.
+3. Sync again for the rest of the backlog; a non-2xx response flips the connection to `degraded` and
+   stores a truncated `last_error` on the card.
+4. Common failures: `redirect_uri_mismatch` (the dev SPA proxies with the original Host, so the URI
+   is `http://localhost:5173/...` unless the API is called directly — register both), unshared Notion
+   pages (connects but imports nothing), or a stale process still holding old env values (restart).
 
 ## File imports
 

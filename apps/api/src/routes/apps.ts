@@ -261,8 +261,10 @@ export const oauthCallbackRoutes = new Hono<AppEnv>();
 
 oauthCallbackRoutes.get("/:app/callback", async (c) => {
   const appId = c.req.param("app");
-  const appOrigin = c.env.APP_ORIGIN ?? "http://localhost:5173";
-  const redirect = (params: string) => c.redirect(`${appOrigin}/apps?${params}`);
+  const appOrigin = (c.env.APP_ORIGIN ?? "http://localhost:5173").replace(/\/$/, "");
+  // The SPA selects views with `?view=`, not a path: `/apps` would land on Knowledge
+  // and the post-install sync effect would never mount.
+  const redirect = (params: string) => c.redirect(`${appOrigin}/?view=apps&${params}`);
 
   if (c.req.query("error")) {
     return redirect(`error=${encodeURIComponent(c.req.query("error") ?? "oauth_denied")}`);
@@ -295,7 +297,17 @@ oauthCallbackRoutes.get("/:app/callback", async (c) => {
       status: "connected",
     });
     await repo.audit(pending.userId, "connection.install", connection.id, { app: appId });
-    return redirect(`installed=${encodeURIComponent(appId)}`);
+    // First sync runs here so the App Store opens with data already in place.
+    // One page keeps the callback within Worker subrequest limits; the rest
+    // arrives on the next scheduled or manual sync.
+    let counts = "";
+    try {
+      const summary = await syncConnection(c.env, pending.workspaceId, connection, 1);
+      counts = `&fetched=${summary.fetched}&created=${summary.created}`;
+    } catch {
+      // The connection is marked degraded with last_error; the user can retry.
+    }
+    return redirect(`installed=${encodeURIComponent(appId)}${counts}`);
   } catch (error) {
     console.error(`[oauth] ${appId} callback failed`, error);
     return redirect(`error=${encodeURIComponent(String(error).slice(0, 120))}`);

@@ -39,7 +39,7 @@ all pass. The initial JS bundle must stay **≤ 200 KB gzip**; `Import`, `Apps`,
 | `packages/core`       | schemas, entitlements/plans, ids, errors                                    |
 | `packages/auth`       | OTP + opaque session tokens                                                 |
 | `packages/search`     | hybrid ranking, URL canonicalization, intent detection                      |
-| `packages/connectors` | provider registry and file importers (bookmarks, Keep)                      |
+| `packages/connectors` | provider registry and the bookmark file importer                            |
 | `packages/ai`         | Workers AI embeddings/summaries                                             |
 | `docs/`               | lowercase markdown docs — keep filenames lowercase and links working        |
 

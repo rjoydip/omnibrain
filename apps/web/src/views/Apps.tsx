@@ -25,14 +25,8 @@ import {
 import { ApiError, type AppInfo, api } from "../lib/api";
 import { relativeTime } from "../lib/format";
 
-/** Social-login style provider name: Google Keep signs in with Google. */
-function signInName(app: AppInfo): string {
-  return app.id === "keep" ? "Google" : app.name;
-}
-
 /** Deployment env vars that enable one-click sign-in for an app. */
 function envHint(app: AppInfo): string {
-  if (app.id === "keep") return "GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET";
   if (app.id === "notion") return "NOTION_CLIENT_ID / NOTION_CLIENT_SECRET";
   return "GH_CLIENT_ID / GH_CLIENT_SECRET";
 }
@@ -101,20 +95,22 @@ export function AppsView({
     const installed = params.get("installed");
     const failed = params.get("error");
     if (installed) {
+      const created = Number(params.get("created") ?? 0) || 0;
+      const fetched = Number(params.get("fetched") ?? 0) || 0;
       window.history.replaceState({}, "", window.location.pathname);
-      toast(`${installed} connected. Syncing…`);
+      toast(
+        fetched > 0
+          ? `${installed} connected · ${created} imported.`
+          : `${installed} connected · nothing to import yet.`,
+      );
       void (async () => {
         try {
           const res = await api.apps();
           setApps(res.apps);
-          const app = res.apps.find((item) => item.id === installed);
-          if (!app?.connection) return;
-          await runSync(app.connection.id, app.name);
           await load();
           onChanged();
         } catch (err) {
-          toast(err instanceof ApiError ? err.message : "Sync failed", "error");
-          await load();
+          toast(err instanceof ApiError ? err.message : "Could not load the App Store", "error");
         }
       })();
     } else if (failed) {
@@ -244,7 +240,7 @@ export function AppsView({
             const degraded = app.connection?.status === "degraded";
             const paused = app.connection?.status === "paused";
             const installLabel = app.configured
-              ? `Continue with ${signInName(app)}`
+              ? `Continue with ${app.name}`
               : app.token_auth
                 ? `Connect ${app.name} with a token`
                 : `Set up ${app.name} sign-in`;

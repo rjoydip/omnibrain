@@ -1,7 +1,7 @@
 import { DotIcon, GlobeIcon } from "./icons";
 import { BrandLogo } from "./BrandLogo";
 
-const BRANDS = new Set(["notion", "x", "keep", "raindrop", "browser", "github"]);
+const BRANDS = new Set(["notion", "x", "raindrop", "browser", "github"]);
 
 /**
  * Source mark that follows the active accent: a brand path in `currentColor`,

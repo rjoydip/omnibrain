@@ -42,20 +42,6 @@ export const APP_CATALOG: ConnectorManifest[] = [
     glyph: "GH",
     tone: "muted",
   },
-  {
-    id: "keep",
-    name: "Google Keep",
-    category: "Notes",
-    description:
-      "Notes synced with Google OAuth. The Keep API needs a Google Workspace account; personal Gmail is not supported.",
-    status: "beta",
-    auth: "oauth2",
-    scopes: ["keep.readonly"],
-    capabilities: ["import", "incremental", "revoke"],
-    schedule: "*/30 * * * *",
-    glyph: "K",
-    tone: "amber",
-  },
 ];
 
 export function getApp(id: string): ConnectorManifest | undefined {
@@ -100,14 +86,6 @@ export async function syncApp(input: {
     case "github": {
       const { listGithubGists } = await import("./github");
       return listGithubGists({
-        token: input.token,
-        cursor: input.cursor,
-        fetchImpl: input.fetchImpl,
-      });
-    }
-    case "keep": {
-      const { listKeepNotes } = await import("./keep");
-      return listKeepNotes({
         token: input.token,
         cursor: input.cursor,
         fetchImpl: input.fetchImpl,

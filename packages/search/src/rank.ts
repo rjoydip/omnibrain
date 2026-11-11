@@ -24,7 +24,7 @@ function isTracking(key: string) {
 
 /**
  * Stable identity for dedupe across imports. Returns null for non-http(s) URLs so
- * app-specific links (notion://, keep://) are deduped by external id instead.
+ * app-specific links (notion://) are deduped by external id instead.
  */
 export function canonicalizeUrl(input: string): string | null {
   const raw = input.trim();

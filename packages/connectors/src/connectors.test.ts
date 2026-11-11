@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { parseBookmarksHtml } from "./browser";
 import { listGithubGists } from "./github";
-import { listKeepNotes } from "./keep";
 import { APP_CATALOG, getApp, syncApp } from "./registry";
 
 const SAMPLE = `<!DOCTYPE NETSCAPE-Bookmark-file-1>
@@ -38,43 +37,6 @@ describe("browser bookmarks parser", () => {
 
   test("empty input is safe", () => {
     expect(parseBookmarksHtml("")).toEqual([]);
-  });
-});
-
-describe("keep api adapter", () => {
-  test("maps notes, skips trashed ones and follows the page token", async () => {
-    let seen = "";
-    const fetchImpl = (async (input: Parameters<typeof fetch>[0]) => {
-      seen = String(input);
-      return new Response(
-        JSON.stringify({
-          notes: [
-            {
-              name: "notes/1",
-              title: "Shopping",
-              createTime: "2024-01-01T00:00:00Z",
-              body: { text: { text: "milk\neggs" } },
-            },
-            { name: "notes/2", title: "Trashed", trashed: true },
-          ],
-          nextPageToken: "next",
-        }),
-        { status: 200 },
-      );
-    }) as typeof fetch;
-
-    const res = await listKeepNotes({ token: "t", fetchImpl });
-    expect(seen).toContain("/v1/notes?");
-    expect(res.items).toHaveLength(1);
-    expect(res.items[0]).toMatchObject({
-      externalId: "notes/1",
-      kind: "note",
-      title: "Shopping",
-      note: "milk\neggs",
-      tags: ["keep"],
-    });
-    expect(res.items[0]?.capturedAt).toBe(Date.parse("2024-01-01T00:00:00Z"));
-    expect(res.nextCursor).toBe("next");
   });
 });
 
@@ -180,8 +142,7 @@ describe("catalog", () => {
     expect(getApp("browser")?.auth).toBe("file-import");
     expect(getApp("notion")?.auth).toBe("oauth2");
     expect(getApp("github")?.tokenAuth).toBe(true);
-    expect(getApp("keep")?.auth).toBe("oauth2");
-    expect(APP_CATALOG.length).toBeGreaterThanOrEqual(4);
+    expect(APP_CATALOG.length).toBeGreaterThanOrEqual(3);
   });
 
   test("live sync refuses import-only apps", async () => {

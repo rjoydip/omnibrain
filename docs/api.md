@@ -129,7 +129,7 @@ Batch:
 {
   "items": [
     { "url": "https://a.example", "title": "A", "source": "browser" },
-    { "title": "A note", "note": "Body", "kind": "note", "source": "keep" }
+    { "title": "A note", "note": "Body", "kind": "note", "source": "web" }
   ],
   "import_id": "imp_…"
 }

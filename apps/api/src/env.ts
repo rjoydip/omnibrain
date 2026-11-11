@@ -32,8 +32,6 @@ export interface Env {
   EMAIL_FROM?: string;
   NOTION_CLIENT_ID?: string;
   NOTION_CLIENT_SECRET?: string;
-  GOOGLE_CLIENT_ID?: string;
-  GOOGLE_CLIENT_SECRET?: string;
   GH_CLIENT_ID?: string;
   GH_CLIENT_SECRET?: string;
 }
