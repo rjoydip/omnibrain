@@ -117,7 +117,7 @@ export function AppsView({
       toast(decodeURIComponent(failed), "error");
       window.history.replaceState({}, "", window.location.pathname);
     }
-  }, [toast, onChanged, load, runSync]);
+  }, [toast, onChanged, load]);
 
   function openToken(app: AppInfo) {
     setTokenApp(app);

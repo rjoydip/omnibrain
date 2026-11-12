@@ -186,6 +186,11 @@ function openReader(item: Item) {
   );
 }
 
+/** Share links live on the same path so the SPA can route them. */
+function shareUrl(token: string): string {
+  return `${window.location.origin}${window.location.pathname}?share=${encodeURIComponent(token)}`;
+}
+
 function ShareLinkField({
   url,
   copied,
@@ -415,9 +420,6 @@ export function Inspector({
     }
   };
 
-  const shareUrl = (token: string) =>
-    `${window.location.origin}${window.location.pathname}?share=${encodeURIComponent(token)}`;
-
   const openShare = async () => {
     if (!item) return;
     setShareOpen(true);
@@ -497,17 +499,16 @@ export function Inspector({
     let alive = true;
     setPeopleBusy(true);
     const timer = setTimeout(() => {
-      api
-        .people(query)
-        .then((res) => {
+      void (async () => {
+        try {
+          const res = await api.people(query);
           if (alive) setPeople(res.people);
-        })
-        .catch(() => {
+        } catch {
           if (alive) setPeople([]);
-        })
-        .finally(() => {
+        } finally {
           if (alive) setPeopleBusy(false);
-        });
+        }
+      })();
     }, 250);
     return () => {
       alive = false;
@@ -659,7 +660,7 @@ export function Inspector({
           <div className="mb-1.5 flex flex-wrap gap-1">
             {tabs.map((file, index) => (
               <button
-                key={`${file.name}-${index}`}
+                key={file.name}
                 type="button"
                 onClick={() => {
                   if (files.length === 0) return;

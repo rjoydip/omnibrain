@@ -76,14 +76,14 @@ export function Reader({ itemId }: { itemId: string }) {
 
   useEffect(() => {
     let alive = true;
-    api
-      .item(itemId)
-      .then((res) => {
+    void (async () => {
+      try {
+        const res = await api.item(itemId);
         if (alive) setItem(res.item);
-      })
-      .catch((err) => {
+      } catch (err) {
         if (alive) setError(err instanceof ApiError ? err.message : "Could not open this item");
-      });
+      }
+    })();
     return () => {
       alive = false;
     };
@@ -108,14 +108,14 @@ export function SharedReader({ token }: { token: string }) {
 
   useEffect(() => {
     let alive = true;
-    api
-      .sharedItem(token)
-      .then((res) => {
+    void (async () => {
+      try {
+        const res = await api.sharedItem(token);
         if (alive) setItem(res.item);
-      })
-      .catch((err) => {
+      } catch (err) {
         if (alive) setError(err instanceof ApiError ? err.message : "This link is not available");
-      });
+      }
+    })();
     return () => {
       alive = false;
     };
