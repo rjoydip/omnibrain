@@ -1,14 +1,16 @@
 export type View = "knowledge" | "apps" | "import" | "mcp" | "settings";
 export type Theme = "ink" | "paper" | "contrast";
-export type Accent = "cobalt" | "amber" | "mint" | "coral" | "violet" | "slate";
+export type Accent = "cobalt" | "amber" | "mint" | "rose" | "violet" | "cyan";
+export type ItemStatus = "active" | "archived" | "trash";
+export type ItemLayout = "list" | "grid" | "graph";
 
 export const ACCENTS: Array<{ id: Accent; label: string }> = [
   { id: "cobalt", label: "Cobalt" },
   { id: "amber", label: "Amber" },
   { id: "mint", label: "Mint" },
-  { id: "coral", label: "Coral" },
+  { id: "rose", label: "Rose" },
   { id: "violet", label: "Violet" },
-  { id: "slate", label: "Slate" },
+  { id: "cyan", label: "Cyan" },
 ];
 
 export const VIEW_LABEL: Record<View, string> = {

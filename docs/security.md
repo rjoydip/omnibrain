@@ -16,7 +16,8 @@ tenant check, or all three.
 ## Authentication and sessions
 
 - OTP codes are six digits, expire in 10 minutes, are stored as `sha256(AUTH_SECRET:email:code)`, and
-  lock after five wrong attempts. Requests are rate-limited per IP and email.
+  lock after five wrong attempts. Requests are rate-limited per IP and email, plus a durable
+  60-second resend cooldown per address.
 - Session tokens are 256-bit random values. Only `sha256(token)` is stored in D1; the cookie holds
   the raw value with `HttpOnly`, `SameSite=Lax` (dev) / `SameSite=None; Secure` (cross-site HTTPS),
   and a 30-day expiry.
@@ -78,15 +79,27 @@ Fetched/imported text is untrusted **data**, never instructions:
 - Responses are capped (64 KB) and search limits are capped at 20.
 - There is no bulk-delete or admin tool.
 
+## Browser and transport defenses
+
+- API responses set HSTS, `X-Frame-Options: DENY`, `Cross-Origin-Opener-Policy: same-origin` and a
+  JSON-only CSP (`default-src 'none'`).
+- The SPA ships a build-time `<meta>` CSP: self scripts, self + inline styles, self/https/wss
+  connections, no objects, `base-uri 'none'`. HSTS/CSP headers on static assets belong to the host.
+- Mutating requests use a double-submit token: `x-csrf-token` must match the readable
+  `omnibrain_csrf` cookie, or the browser must report `Sec-Fetch-Site: same-origin|same-site`.
+- Writes are limited to 120/minute per workspace+user. Production sourcemaps are disabled.
+
 ## Abuse controls
 
 - Per-IP/per-user fixed windows for OTP, verify, search and MCP.
+- Durable one-email-per-minute cooldown per address; OTP codes expire after 10 minutes.
 - Plan entitlements checked with the same pure function on client and server.
 - Enrichment skips unchanged content hashes and caps extracted text/pages.
 - Account deletion and disconnect both delete vectors in batches.
 
 Limits are per-isolate today; Durable Object counters are the planned durable path (see
-DECISIONS §8).
+DECISIONS §8). The per-address OTP cooldown is already durable because it is derived from the stored
+code row.
 
 ## Data lifecycle
 
@@ -95,7 +108,7 @@ DECISIONS §8).
   metadata.
 - Account deletion removes owned workspaces, items, connections, sessions, usage, audit rows and
   vectors. Other members' memberships are removed.
-- No customer data is sent to a third party except the configured email provider and Cloudflare
+- No customer data is sent to a third party except Cloudflare Email Service and other Cloudflare
   services. AI inference runs on Workers AI.
 
 ## Logging
@@ -114,7 +127,7 @@ vulnerability. We aim to acknowledge within 48 hours.
 ## PR checklist
 
 - [ ] New query goes through `forWorkspace()` and has a cross-tenant test.
-- [ ] New mutation calls `requireRole` and writes an audit entry.
+- [ ] New mutation calls `requireRole`, writes an audit entry, and goes through `api.ts` (CSRF + write limit).
 - [ ] New external fetch uses `assertFetchable` and timeouts.
 - [ ] New secret is encrypted, redacted from responses/logs, and absent from exports.
 - [ ] New MCP tool is workspace-scoped, capped and metered.

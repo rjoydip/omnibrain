@@ -5,7 +5,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./browser": "./src/browser.ts",
-    "./keep": "./src/keep.ts"
+    "./github": "./src/github.ts"
   },
   "dependencies": {
     "@omnibrain/core": "workspace:*"

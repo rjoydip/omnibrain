@@ -14,9 +14,9 @@ export const SOURCES = [
   "web",
   "browser",
   "notion",
-  "keep",
   "x",
   "raindrop",
+  "github",
   "readwise",
   "obsidian",
   "mcp",
@@ -53,6 +53,8 @@ export const ItemPatchSchema = z.object({
 export const ItemQuerySchema = z.object({
   source: z.enum(SOURCES).optional(),
   kind: z.enum(KINDS).optional(),
+  status: z.enum(["active", "archived", "trash"]).default("active"),
+  embedding: z.enum(["pending", "ready", "failed", "skipped"]).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
   cursor: z.string().optional(),
   q: z.string().trim().max(200).optional(),
@@ -82,11 +84,15 @@ export const ImportBatchSchema = z.object({
 });
 
 export const ImportCreateSchema = z.object({
-  kind: z.enum(["browser_html", "keep_takeout", "obsidian_zip"]),
+  kind: z.enum(["browser_html", "obsidian_zip"]),
   total: z.number().int().min(0).max(1_000_000).default(0),
 });
 
-export const ConnectionCreateSchema = z.object({ app_id: z.string().min(1).max(40) });
+export const ConnectionCreateSchema = z.object({
+  app_id: z.string().min(1).max(40),
+  /** Personal access token alternative to the OAuth sign-in. */
+  token: z.string().trim().min(1).max(500).optional(),
+});
 export const ApiKeyCreateSchema = z.object({ name: z.string().trim().min(1).max(60) });
 export const NoteSaveSchema = z.object({
   text: z.string().trim().min(1).max(100_000),

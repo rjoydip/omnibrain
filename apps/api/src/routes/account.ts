@@ -12,12 +12,14 @@ export const accountRoutes = new Hono<AppEnv>();
 accountRoutes.get("/account", async (c) => {
   const repo = repoOf(c.env, c.get("workspaceId"));
   const usage = await repo.usage();
+  const queue = await repo.enrichmentQueue();
   const plan = c.get("workspace").plan as PlanId;
   return c.json({
     user: c.get("session"),
     workspace: c.get("workspace"),
     role: c.get("role"),
     usage,
+    queue,
     entitlements: entitlementSummary(plan, {
       items: usage.items,
       enrichmentsMonth: usage.enrichments_month,
@@ -27,6 +29,12 @@ accountRoutes.get("/account", async (c) => {
       apiKeys: usage.api_keys,
     }),
   });
+});
+
+accountRoutes.get("/people", async (c) => {
+  const q = (c.req.query("q") ?? "").trim().slice(0, 120);
+  const people = q ? await repoOf(c.env, c.get("workspaceId")).searchPeople(q) : [];
+  return c.json({ people });
 });
 
 accountRoutes.get("/workspaces", async (c) => {

@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { EmptyState } from "@omnibrain/ui";
+import {
+  EmptyState,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@omnibrain/ui";
 import type { Item } from "../lib/api";
 import { sourceMeta } from "../lib/format";
 
@@ -12,6 +19,7 @@ export interface AtlasFilter {
 
 const WEEKS = 52;
 const DAY = 86_400_000;
+const NO_SOURCES: string[] = [];
 const LEFT = 72;
 const RIGHT = 8;
 const TOP = 6;
@@ -35,11 +43,13 @@ function geometry(width: number, height: number, rowCount: number) {
 
 export function Atlas({
   items,
+  sources: knownSources = NO_SOURCES,
   filter,
   onFilter,
   theme,
 }: {
   items: Item[];
+  sources?: string[];
   filter: AtlasFilter | null;
   onFilter: (filter: AtlasFilter | null) => void;
   theme: string;
@@ -47,6 +57,13 @@ export function Atlas({
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [now] = useState(() => Date.now());
+  const currentYear = new Date(now).getFullYear();
+  const years = useMemo(() => {
+    const set = new Set<number>([currentYear]);
+    for (const item of items) set.add(new Date(item.captured_at).getFullYear());
+    return [...set].toSorted((a, b) => b - a);
+  }, [items, currentYear]);
+  const [year, setYear] = useState(currentYear);
   const [hover, setHover] = useState<{ x: number; y: number; label: string } | null>(null);
   const [cursor, setCursor] = useState<"default" | "crosshair">("default");
   const [drag, setDrag] = useState<{
@@ -59,9 +76,16 @@ export function Atlas({
   const dragRef = useRef<typeof drag>(null);
 
   const data = useMemo(() => {
-    const currentWeek = startOfWeek(now);
+    const anchor = year === currentYear ? now : new Date(year, 11, 31, 23, 59, 59).getTime();
+    const currentWeek = startOfWeek(anchor);
     const start = currentWeek - (WEEKS - 1) * 7 * DAY;
     const counts = new Map<string, number[]>();
+    for (const source of knownSources) {
+      counts.set(
+        source,
+        Array.from({ length: WEEKS }, () => 0),
+      );
+    }
     for (const item of items) {
       const week = startOfWeek(item.captured_at);
       const index = Math.round((week - start) / (7 * DAY));
@@ -70,12 +94,12 @@ export function Atlas({
       row[index] = (row[index] ?? 0) + 1;
       counts.set(item.source, row);
     }
-    const rows = [...counts.entries()]
-      .toSorted((a, b) => b[1].reduce((x, y) => x + y, 0) - a[1].reduce((x, y) => x + y, 0))
-      .slice(0, 8);
+    const rows = [...counts.entries()].toSorted(
+      (a, b) => b[1].reduce((x, y) => x + y, 0) - a[1].reduce((x, y) => x + y, 0),
+    );
     const max = Math.max(1, ...rows.flatMap(([, row]) => row));
     return { start, rows, max };
-  }, [items, now]);
+  }, [items, knownSources, now, year, currentYear]);
 
   const draw = useCallback(() => {
     void theme;
@@ -117,16 +141,14 @@ export function Atlas({
     }
     ctx.globalAlpha = 1;
 
-    ctx.font = "10px 'Geist Mono Variable', ui-monospace, monospace";
+    ctx.font = "10px ui-monospace, monospace";
     ctx.textBaseline = "middle";
     const activeSources = filter?.sources?.length ? filter.sources : null;
     ctx.textAlign = "left";
     data.rows.forEach(([source], rowIndex) => {
       const label = sourceMeta(source).label;
       const active = Boolean(activeSources?.includes(source));
-      ctx.font = active
-        ? "600 10px 'Geist Mono Variable', ui-monospace, monospace"
-        : "10px 'Geist Mono Variable', ui-monospace, monospace";
+      ctx.font = active ? "600 10px ui-monospace, monospace" : "10px ui-monospace, monospace";
       ctx.fillStyle = active ? accent : muted;
       ctx.globalAlpha = activeSources && !active ? 0.35 : 1;
       ctx.fillText(
@@ -136,7 +158,7 @@ export function Atlas({
       );
       ctx.globalAlpha = 1;
     });
-    ctx.font = "9px 'Geist Mono Variable', ui-monospace, monospace";
+    ctx.font = "9px ui-monospace, monospace";
 
     // Month labels at the first week of each month.
     let lastMonth = -1;
@@ -403,6 +425,28 @@ export function Atlas({
     <div className="space-y-2">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.14em] text-faint">
+          <Select
+            value={String(year)}
+            onValueChange={(value) => {
+              setYear(Number(value));
+              onFilter(null);
+            }}
+          >
+            <SelectTrigger
+              aria-label="Memory map year"
+              className="h-6 w-auto gap-1 px-1.5 font-mono text-[10px] tracking-[0.14em]"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {years.map((value) => (
+                <SelectItem key={value} value={String(value)}>
+                  {value}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <span className="text-faint">/</span>
           <span>{WEEKS} weeks</span>
           <span className="text-faint">/</span>
           <span>{data.rows.length} rows</span>
@@ -421,14 +465,15 @@ export function Atlas({
       </div>
       <div
         ref={wrapRef}
-        className="relative h-28 w-full overflow-hidden rounded-[var(--radius)] bg-panel md:h-32"
+        className="relative w-full overflow-hidden rounded-[var(--radius)] bg-panel"
+        style={{ height: Math.max(112, data.rows.length * 14 + 24) }}
       >
         <canvas
           ref={canvasRef}
           className="atlas-canvas"
           style={{ cursor }}
           role="img"
-          aria-label={`Capture density by source for the last ${WEEKS} weeks. Drag a box to filter the stream.`}
+          aria-label={`Capture density by source for ${year}. Drag a box to filter the stream.`}
           onMouseDown={handleDown}
           onMouseMove={handleMove}
           onMouseLeave={() => {

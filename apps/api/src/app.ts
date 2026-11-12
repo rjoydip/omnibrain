@@ -4,16 +4,20 @@ import type { AppEnv } from "./env";
 import { isDev } from "./env";
 import {
   appErrorToResponse,
+  csrfGuard,
+  issueCsrfCookie,
   jsonError,
   originGuard,
   requestId,
   requireSession,
   sessionMiddleware,
   workspaceMiddleware,
+  writeRateLimit,
 } from "./http";
 import { mcpRoutes } from "./mcp";
 import { accountRoutes } from "./routes/account";
 import { appRoutes, oauthCallbackRoutes } from "./routes/apps";
+import { publicRoutes } from "./routes/public";
 import { authRoutes } from "./routes/auth";
 import { importRoutes } from "./routes/imports";
 import { itemRoutes } from "./routes/items";
@@ -38,6 +42,13 @@ export function createApp() {
     c.header("x-frame-options", "DENY");
     c.header("referrer-policy", "strict-origin-when-cross-origin");
     c.header("permissions-policy", "camera=(), microphone=(), geolocation=()");
+    c.header("strict-transport-security", "max-age=31536000; includeSubDomains");
+    c.header("cross-origin-opener-policy", "same-origin");
+    // API responses are JSON only; the SPA gets its policy from the static host.
+    c.header(
+      "content-security-policy",
+      "default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
+    );
     await next();
   });
 
@@ -54,7 +65,13 @@ export function createApp() {
         }
       },
       credentials: true,
-      allowHeaders: ["content-type", "x-workspace-id", "authorization", "x-request-id"],
+      allowHeaders: [
+        "content-type",
+        "x-workspace-id",
+        "authorization",
+        "x-request-id",
+        "x-csrf-token",
+      ],
       allowMethods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
       exposeHeaders: ["x-request-id"],
       maxAge: 600,
@@ -65,15 +82,23 @@ export function createApp() {
     c.json({ ok: true, name: "omnibrain-api", version: "0.1.0", time: Date.now() }),
   );
 
+  app.use("/api/v1/*", async (c, next) => {
+    await next();
+    issueCsrfCookie(c);
+  });
+
   app.route("/api/v1/auth", authRoutes);
   app.route("/api/v1/oauth", oauthCallbackRoutes);
+  app.route("/api/v1/public", publicRoutes);
   app.route("/mcp", mcpRoutes);
 
   const api = new Hono<AppEnv>();
   api.use("*", originGuard);
   api.use("*", sessionMiddleware);
   api.use("*", requireSession);
+  api.use("*", csrfGuard);
   api.use("*", workspaceMiddleware);
+  api.use("*", writeRateLimit);
   api.route("/items", itemRoutes);
   api.route("/search", searchRoutes);
   api.route("/apps", appRoutes);

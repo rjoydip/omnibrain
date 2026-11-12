@@ -45,15 +45,18 @@ async function login(
     env,
   );
   expect(verify.status).toBe(200);
-  const cookie = verify.headers.get("set-cookie");
-  expect(cookie).toContain("ob_session=");
-  return cookie?.split(";")[0] ?? "";
+  const setCookies = verify.headers.getSetCookie();
+  const header = setCookies.map((value) => value.split(";")[0]).join("; ");
+  expect(header).toContain("ob_session=");
+  expect(header).toContain("omnibrain_csrf=");
+  return header;
 }
 
 const json = (cookie: string) => ({
   "content-type": "application/json",
   origin: ORIGIN,
   cookie,
+  "x-csrf-token": /omnibrain_csrf=([^;]+)/.exec(cookie)?.[1] ?? "",
 });
 
 describe("api", () => {
@@ -321,6 +324,21 @@ describe("api", () => {
     expect(res.status).toBe(403);
   });
 
+  test("mutation without a CSRF token is rejected", async () => {
+    const { app, env } = harness();
+    const cookie = await login(app, env);
+    const res = await app.request(
+      "/api/v1/items",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json", origin: ORIGIN, cookie },
+        body: JSON.stringify({ title: "csrf check" }),
+      },
+      env,
+    );
+    expect(res.status).toBe(403);
+  });
+
   test("import batches are idempotent", async () => {
     const { app, env } = harness();
     const cookie = await login(app, env);
@@ -381,6 +399,69 @@ describe("api", () => {
     expect(againBody.duplicates).toBe(2);
   });
 
+  test("a public share link exposes the item until it is revoked", async () => {
+    const { app, env } = harness();
+    const cookie = await login(app, env);
+
+    const created = await app.request(
+      "/api/v1/items",
+      {
+        method: "POST",
+        headers: json(cookie),
+        body: JSON.stringify({ title: "Shared note", note: "Hello there" }),
+      },
+      env,
+    );
+    const { item } = (await created.json()) as { item: { id: string } };
+
+    const share = await app.request(
+      `/api/v1/items/${item.id}/share`,
+      { method: "POST", headers: json(cookie), body: JSON.stringify({ recipients: [] }) },
+      env,
+    );
+    expect(share.status).toBe(200);
+    const { token } = (await share.json()) as { token: string };
+    expect(token.length).toBeGreaterThan(10);
+
+    // No session, no CSRF: the token is the credential.
+    const publicRead = await app.request(`/api/v1/public/items/${token}`, {}, env);
+    expect(publicRead.status).toBe(200);
+    const shared = (await publicRead.json()) as { item: Record<string, unknown> };
+    expect(shared.item.title).toBe("Shared note");
+    expect(shared.item.excerpt).toBe("Hello there");
+    expect(shared.item.workspace_id).toBeUndefined();
+
+    await app.request(
+      `/api/v1/items/${item.id}/share`,
+      { method: "DELETE", headers: json(cookie) },
+      env,
+    );
+    expect((await app.request(`/api/v1/public/items/${token}`, {}, env)).status).toBe(404);
+  });
+
+  test("queue run only starts items that have a url", async () => {
+    const { app, env } = harness();
+    const cookie = await login(app, env);
+
+    await app.request(
+      "/api/v1/items",
+      {
+        method: "POST",
+        headers: json(cookie),
+        body: JSON.stringify({ title: "Note only", note: "body" }),
+      },
+      env,
+    );
+
+    const res = await app.request(
+      "/api/v1/items/queue/run",
+      { method: "POST", headers: json(cookie) },
+      env,
+    );
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { started: number }).started).toBe(0);
+  });
+
   test("app catalog reports configuration honestly", async () => {
     const { app, env } = harness();
     const cookie = await login(app, env);
@@ -390,9 +471,18 @@ describe("api", () => {
     const { apps } = (await catalog.json()) as {
       apps: Array<{ id: string; configured: boolean; auth: string }>;
     };
-    expect(apps.length).toBe(5);
+    expect(apps.length).toBe(3);
     const notion = apps.find((a) => a.id === "notion");
     expect(notion?.configured).toBe(false);
+
+    // Env credentials make an OAuth app one-click, no in-app setup required.
+    env.GH_CLIENT_ID = "gh-id";
+    env.GH_CLIENT_SECRET = "gh-secret";
+    const configured = await app.request("/api/v1/apps", { headers: { cookie } }, env);
+    const { apps: afterEnv } = (await configured.json()) as {
+      apps: Array<{ id: string; configured: boolean }>;
+    };
+    expect(afterEnv.find((a) => a.id === "github")?.configured).toBe(true);
 
     const oauth = await app.request(
       "/api/v1/apps/connections",
@@ -405,12 +495,34 @@ describe("api", () => {
 
     const importOnly = await app.request(
       "/api/v1/apps/connections",
-      { method: "POST", headers: json(cookie), body: JSON.stringify({ app_id: "keep" }) },
+      { method: "POST", headers: json(cookie), body: JSON.stringify({ app_id: "browser" }) },
       env,
     );
     expect(importOnly.status).toBe(400);
     expect(((await importOnly.json()) as { error: { code: string } }).error.code).toBe(
       "bad_request",
     );
+
+    // GitHub can install with a pasted token instead of an OAuth app.
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) =>
+      String(input).includes("/gists")
+        ? new Response("[]", { status: 200 })
+        : new Response(JSON.stringify({ login: "octocat" }), { status: 200 })) as typeof fetch;
+    try {
+      const tokenConnect = await app.request(
+        "/api/v1/apps/connections",
+        {
+          method: "POST",
+          headers: json(cookie),
+          body: JSON.stringify({ app_id: "github", token: "ghp_test" }),
+        },
+        env,
+      );
+      expect(tokenConnect.status).toBe(201);
+      expect(((await tokenConnect.json()) as { ok: boolean }).ok).toBe(true);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
   });
 });

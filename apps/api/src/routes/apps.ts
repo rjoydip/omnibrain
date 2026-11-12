@@ -17,7 +17,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { encryptSecret } from "../crypto";
 import { type AppEnv, dbOf, repoOf } from "../env";
-import { background, requireRole } from "../http";
+import { requireRole } from "../http";
 import {
   authorizeUrl,
   exchangeForApp,
@@ -50,6 +50,7 @@ appRoutes.get("/", async (c) => {
         ...app,
         configured:
           app.auth === "oauth2" ? Boolean(provider?.clientId && provider.clientSecret) : true,
+        token_auth: Boolean(app.tokenAuth),
         credential_source: provider?.source ?? null,
         installed: Boolean(conn),
         connection: conn
@@ -118,7 +119,7 @@ const ConnectSchema = ConnectionCreateSchema;
 
 appRoutes.post("/connections", body(ConnectSchema), async (c) => {
   requireRole(c, ["owner", "admin"]);
-  const { app_id } = c.req.valid("json");
+  const { app_id, token } = c.req.valid("json");
   const app = getApp(app_id);
   if (!app) throw new AppError("not_found", "Unknown app", 404);
 
@@ -134,8 +135,39 @@ appRoutes.post("/connections", body(ConnectSchema), async (c) => {
     });
   }
 
-  if (app.auth !== "oauth2") {
+  if (app.auth !== "oauth2" && !app.tokenAuth) {
     throw new AppError("bad_request", `${app.name} connections are not available yet`, 400);
+  }
+
+  // Token path: the alternative to the OAuth sign-in. Verify before storing so
+  // a typo never becomes a silently degraded source.
+  if (token) {
+    if (!app.tokenAuth) {
+      throw new AppError("bad_request", `${app.name} does not accept access tokens`, 400);
+    }
+    let externalId: string;
+    try {
+      externalId = await fetchExternalAccountId(c.env, app.id, token, {});
+    } catch {
+      throw new AppError("bad_request", `${app.name} rejected that token. Check its scopes.`, 400);
+    }
+    const ciphertext = await encryptSecret(
+      c.env.TOKEN_KEY ?? c.env.AUTH_SECRET,
+      JSON.stringify({ access_token: token }),
+    );
+    const connection = await repo.upsertConnection({
+      appId: app.id,
+      externalAccountId: externalId,
+      scopes: app.scopes,
+      secretCiphertext: ciphertext,
+      status: "connected",
+    });
+    await repo.audit(c.get("session").user_id, "connection.install", connection.id, {
+      app: app.id,
+      method: "token",
+    });
+    // The client triggers the first sync so it can report the item counts.
+    return c.json({ ok: true, connection_id: connection.id }, 201);
   }
 
   const provider = await resolveProvider(c.env, app.id);
@@ -229,8 +261,10 @@ export const oauthCallbackRoutes = new Hono<AppEnv>();
 
 oauthCallbackRoutes.get("/:app/callback", async (c) => {
   const appId = c.req.param("app");
-  const appOrigin = c.env.APP_ORIGIN ?? "http://localhost:5173";
-  const redirect = (params: string) => c.redirect(`${appOrigin}/apps?${params}`);
+  const appOrigin = (c.env.APP_ORIGIN ?? "http://localhost:5173").replace(/\/$/, "");
+  // The SPA selects views with `?view=`, not a path: `/apps` would land on Knowledge
+  // and the post-install sync effect would never mount.
+  const redirect = (params: string) => c.redirect(`${appOrigin}/?view=apps&${params}`);
 
   if (c.req.query("error")) {
     return redirect(`error=${encodeURIComponent(c.req.query("error") ?? "oauth_denied")}`);
@@ -263,12 +297,19 @@ oauthCallbackRoutes.get("/:app/callback", async (c) => {
       status: "connected",
     });
     await repo.audit(pending.userId, "connection.install", connection.id, { app: appId });
-    background(
-      c,
-      syncConnection(c.env, pending.workspaceId, connection, 2).catch(() => undefined),
-    );
-    return redirect(`installed=${encodeURIComponent(appId)}`);
+    // First sync runs here so the App Store opens with data already in place.
+    // One page keeps the callback within Worker subrequest limits; the rest
+    // arrives on the next scheduled or manual sync.
+    let counts = "";
+    try {
+      const summary = await syncConnection(c.env, pending.workspaceId, connection, 1);
+      counts = `&fetched=${summary.fetched}&created=${summary.created}`;
+    } catch {
+      // The connection is marked degraded with last_error; the user can retry.
+    }
+    return redirect(`installed=${encodeURIComponent(appId)}${counts}`);
   } catch (error) {
+    console.error(`[oauth] ${appId} callback failed`, error);
     return redirect(`error=${encodeURIComponent(String(error).slice(0, 120))}`);
   }
 });

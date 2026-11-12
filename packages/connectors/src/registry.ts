@@ -28,44 +28,19 @@ export const APP_CATALOG: ConnectorManifest[] = [
     tone: "cobalt",
   },
   {
-    id: "x",
-    name: "X bookmarks",
-    category: "Social",
+    id: "github",
+    name: "GitHub",
+    category: "Developer",
     description:
-      "Your saved posts. Requires an X API paid tier; the data archive import works without it.",
+      "Import your gists, synced incrementally. Connect with OAuth or paste a personal access token.",
     status: "beta",
     auth: "oauth2",
-    scopes: ["bookmark.read", "tweet.read", "users.read"],
+    tokenAuth: true,
+    scopes: ["gist"],
     capabilities: ["import", "incremental", "revoke"],
     schedule: "*/30 * * * *",
-    glyph: "X",
-    tone: "coral",
-  },
-  {
-    id: "raindrop",
-    name: "Raindrop.io",
-    category: "Bookmarks",
-    description: "Collections, tags and excerpts synced incrementally.",
-    status: "beta",
-    auth: "oauth2",
-    scopes: ["raindrops:read"],
-    capabilities: ["import", "incremental"],
-    schedule: "*/30 * * * *",
-    glyph: "R",
-    tone: "mint",
-  },
-  {
-    id: "keep",
-    name: "Google Keep",
-    category: "Notes",
-    description:
-      "Import a Takeout archive. Google has no consumer Keep API, so this is a one-way import, not a live sync.",
-    status: "import-only",
-    auth: "file-import",
-    scopes: [],
-    capabilities: ["import"],
-    glyph: "K",
-    tone: "amber",
+    glyph: "GH",
+    tone: "muted",
   },
 ];
 
@@ -105,6 +80,14 @@ export async function syncApp(input: {
       return listRaindrops({
         token: input.token,
         page: Number.isFinite(page) ? page : 0,
+        fetchImpl: input.fetchImpl,
+      });
+    }
+    case "github": {
+      const { listGithubGists } = await import("./github");
+      return listGithubGists({
+        token: input.token,
+        cursor: input.cursor,
         fetchImpl: input.fetchImpl,
       });
     }

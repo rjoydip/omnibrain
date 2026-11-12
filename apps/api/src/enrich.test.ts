@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { assertFetchable, extractReadable, isBlockedHost } from "./services/enrich";
+import {
+  assertFetchable,
+  extractReadable,
+  fallbackSummary,
+  isBlockedHost,
+} from "./services/enrich";
 
 describe("ssrf guard", () => {
   test("blocks private and metadata hosts", () => {
@@ -52,5 +57,18 @@ describe("readability", () => {
   test("caps text size", () => {
     const page = extractReadable(`<body>${"a".repeat(200_000)}</body>`);
     expect(page.text.length).toBeLessThanOrEqual(100_000);
+  });
+});
+
+describe("fallback summary", () => {
+  test("strips markdown and keeps the first sentences", () => {
+    const summary = fallbackSummary(
+      "# Title\n\n- [x] First item.\n- [ ] Second item.\n\n**Bold** tail.",
+    );
+    expect(summary).toBe("First item. Second item.");
+  });
+
+  test("truncates long text", () => {
+    expect(fallbackSummary("a".repeat(1000)).length).toBe(240);
   });
 });

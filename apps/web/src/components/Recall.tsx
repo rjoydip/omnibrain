@@ -109,7 +109,7 @@ export function Recall({
       { id: "apps", label: "Open the App Store", hint: "g a", run: () => onNavigate("apps") },
       {
         id: "import",
-        label: "Import bookmarks or Keep",
+        label: "Import bookmarks",
         hint: "g i",
         run: () => onNavigate("import"),
       },
@@ -407,7 +407,7 @@ export function Recall({
                               {item.url ? (
                                 <>
                                   <span>·</span>
-                                  <span className="truncate">{shortUrl(item.url)}</span>
+                                  <span className="truncate text-accent">{shortUrl(item.url)}</span>
                                 </>
                               ) : null}
                             </div>

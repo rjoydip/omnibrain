@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { parseBookmarksHtml } from "./browser";
-import { parseKeepTakeout } from "./keep";
+import { listGithubGists } from "./github";
+import { listNotionPages } from "./notion";
 import { APP_CATALOG, getApp, syncApp } from "./registry";
 
 const SAMPLE = `<!DOCTYPE NETSCAPE-Bookmark-file-1>
@@ -40,31 +41,155 @@ describe("browser bookmarks parser", () => {
   });
 });
 
-describe("keep takeout parser", () => {
-  test("maps text, list, labels and timestamps", () => {
-    const notes = parseKeepTakeout(
-      JSON.stringify([
-        {
-          title: "Shopping",
-          textContent: "milk",
-          listContent: [{ text: "eggs", isChecked: false }],
-          labels: [{ name: "Home" }],
-          createdTimestampUsec: 1_700_000_000_000_000,
-        },
-        { title: "Trashed", isTrashed: true },
-        { title: "", textContent: "Untitled body" },
-      ]),
-    );
-    expect(notes).toHaveLength(2);
-    expect(notes[0]?.title).toBe("Shopping");
-    expect(notes[0]?.note).toContain("[ ] eggs");
-    expect(notes[0]?.tags).toEqual(["Home"]);
-    expect(notes[0]?.capturedAt).toBe(1_700_000_000_000);
-    expect(notes[1]?.title).toBe("Untitled body");
+describe("notion adapter", () => {
+  test("extracts page text from blocks, maps to a note and pages by cursor", async () => {
+    const seen: string[] = [];
+    const fetchImpl = (async (input: Parameters<typeof fetch>[0]) => {
+      const url = String(input);
+      seen.push(url);
+      if (url === "https://api.notion.com/v1/search") {
+        return new Response(
+          JSON.stringify({
+            results: [
+              {
+                id: "p1",
+                url: "https://www.notion.so/Page-1",
+                last_edited_time: "2024-01-01T00:00:00.000Z",
+                properties: { Name: { type: "title", title: [{ plain_text: "Page 1" }] } },
+              },
+            ],
+            has_more: true,
+            next_cursor: "c2",
+          }),
+        );
+      }
+      if (url.startsWith("https://api.notion.com/v1/blocks/p1/children")) {
+        return new Response(
+          JSON.stringify({
+            results: [
+              { type: "heading_1", heading_1: { rich_text: [{ plain_text: "Title" }] } },
+              { type: "paragraph", paragraph: { rich_text: [{ plain_text: "Body" }] } },
+              {
+                type: "code",
+                code: { language: "ts", rich_text: [{ plain_text: "const x = 1" }] },
+              },
+              { type: "divider" },
+            ],
+            has_more: false,
+          }),
+        );
+      }
+      return new Response("unexpected", { status: 500 });
+    }) as typeof fetch;
+
+    const res = await listNotionPages({ token: "t", fetchImpl });
+    expect(res.items).toHaveLength(1);
+    expect(res.items[0]).toMatchObject({
+      externalId: "p1",
+      kind: "note",
+      title: "Page 1",
+      lang: "markdown",
+    });
+    expect(res.items[0]?.note).toBe("# Title\n\nBody\n\n```ts\nconst x = 1\n```");
+    expect(res.nextCursor).toBe("c2");
+    expect(seen.some((url) => url.includes("/blocks/p1/children"))).toBe(true);
+  });
+});
+
+describe("github gists adapter", () => {
+  test("maps gists, loads file content and pages by number", async () => {
+    const seen: string[] = [];
+    const fetchImpl = (async (input: Parameters<typeof fetch>[0]) => {
+      const url = String(input);
+      seen.push(url);
+      if (url.includes("/gists?")) {
+        return new Response(
+          JSON.stringify([
+            {
+              id: "abc123",
+              html_url: "https://gist.github.com/octocat/abc123",
+              description: "Fast runtime notes",
+              created_at: "2024-01-01T00:00:00Z",
+              files: { "notes.md": { filename: "notes.md", language: "Markdown" } },
+              owner: { login: "octocat" },
+            },
+          ]),
+          { status: 200 },
+        );
+      }
+      return new Response(
+        JSON.stringify({
+          files: {
+            "notes.md": { filename: "notes.md", content: "# Fast runtime\nbun --watch" },
+          },
+        }),
+        { status: 200 },
+      );
+    }) as typeof fetch;
+
+    const res = await listGithubGists({ token: "t", fetchImpl });
+    expect(seen[0]).toContain("/gists?");
+    expect(seen.some((url) => url.endsWith("/gists/abc123"))).toBe(true);
+    expect(res.items[0]).toMatchObject({
+      externalId: "abc123",
+      kind: "note",
+      url: "https://gist.github.com/octocat/abc123",
+      title: "Fast runtime notes",
+      note: "# Fast runtime\nbun --watch",
+      lang: "markdown",
+      tags: [],
+      author: "octocat",
+    });
+    expect(res.items[0]?.capturedAt).toBe(Date.parse("2024-01-01T00:00:00Z"));
+    expect(res.nextCursor).toBeNull();
   });
 
-  test("invalid json returns empty", () => {
-    expect(parseKeepTakeout("{oops")).toEqual([]);
+  test("keeps multiple files structured for per-file tabs", async () => {
+    const fetchImpl = (async (input: Parameters<typeof fetch>[0]) => {
+      const url = String(input);
+      if (url.includes("/gists?")) {
+        return new Response(
+          JSON.stringify([
+            {
+              id: "multi",
+              html_url: "https://gist.github.com/octocat/multi",
+              description: "Multi-file gist",
+              files: {
+                "README.md": { filename: "README.md", language: "Markdown" },
+                "index.ts": { filename: "index.ts", language: "TypeScript" },
+              },
+              owner: { login: "octocat" },
+            },
+          ]),
+          { status: 200 },
+        );
+      }
+      return new Response(
+        JSON.stringify({
+          files: {
+            "README.md": { filename: "README.md", content: "# Title" },
+            "index.ts": { filename: "index.ts", content: "export const x = 1;" },
+          },
+        }),
+        { status: 200 },
+      );
+    }) as typeof fetch;
+
+    const res = await listGithubGists({ token: "t", fetchImpl });
+    expect(res.items[0]?.lang).toBe("markdown");
+    expect(res.items[0]?.files).toEqual([
+      { name: "README.md", lang: "markdown", content: "# Title" },
+      { name: "index.ts", lang: "ts", content: "export const x = 1;" },
+    ]);
+    expect(res.items[0]?.note).toContain("```ts");
+  });
+
+  test("registry routes github to the adapter", async () => {
+    const fetchImpl = (async () => new Response("[]", { status: 200 })) as unknown as typeof fetch;
+    await expect(syncApp({ appId: "github", token: "t", fetchImpl })).resolves.toEqual({
+      items: [],
+      nextCursor: null,
+    });
   });
 });
 
@@ -72,8 +197,8 @@ describe("catalog", () => {
   test("has the launch set with honest auth kinds", () => {
     expect(getApp("browser")?.auth).toBe("file-import");
     expect(getApp("notion")?.auth).toBe("oauth2");
-    expect(getApp("keep")?.status).toBe("import-only");
-    expect(APP_CATALOG.length).toBeGreaterThanOrEqual(5);
+    expect(getApp("github")?.tokenAuth).toBe(true);
+    expect(APP_CATALOG.length).toBeGreaterThanOrEqual(3);
   });
 
   test("live sync refuses import-only apps", async () => {

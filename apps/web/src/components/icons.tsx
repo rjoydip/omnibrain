@@ -100,6 +100,24 @@ export const ArrowUpRightIcon = (p: IconProps) => (
   </Icon>
 );
 
+export const UsersIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M16 20v-1.5a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4V20M9 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7M22 20v-1.5a4 4 0 0 0-3-3.87M16 4a3.5 3.5 0 0 1 0 7" />
+  </Icon>
+);
+
+export const ShareIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M12 3v12M12 3l-4 4M12 3l4 4M5 14v5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-5" />
+  </Icon>
+);
+
+export const NewTabIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M14 4h6v6M20 4l-8 8M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" />
+  </Icon>
+);
+
 export const CloseIcon = (p: IconProps) => (
   <Icon {...p}>
     <path d="M6 6l12 12M18 6L6 18" />
@@ -153,6 +171,60 @@ export const EllipsisIcon = (p: IconProps) => (
   </Icon>
 );
 
+export const ArchiveIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M4 5h16v3H4zM6 8v11h12V8" />
+    <path d="M10 12h4" />
+  </Icon>
+);
+
+export const RestoreIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M4 5h16v3H4zM6 8v11h12V8" />
+    <path d="M12 17v-6M9.5 13.5L12 11l2.5 2.5" />
+  </Icon>
+);
+
+export const ListIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M8 6h12M8 12h12M8 18h12" />
+    <circle cx="4" cy="6" r="1" fill="currentColor" stroke="none" />
+    <circle cx="4" cy="12" r="1" fill="currentColor" stroke="none" />
+    <circle cx="4" cy="18" r="1" fill="currentColor" stroke="none" />
+  </Icon>
+);
+
+export const GridIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x="4" y="4" width="6.5" height="6.5" rx="1" />
+    <rect x="13.5" y="4" width="6.5" height="6.5" rx="1" />
+    <rect x="4" y="13.5" width="6.5" height="6.5" rx="1" />
+    <rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1" />
+  </Icon>
+);
+
+export const WrapIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M4 6h16M4 12h11a3 3 0 1 1 0 6H9" />
+    <path d="M12 15l-3 3 3 3" />
+  </Icon>
+);
+
+export const CodeIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M8 7l-5 5 5 5M16 7l5 5-5 5" />
+  </Icon>
+);
+
+export const GraphIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <circle cx="12" cy="5" r="2.2" />
+    <circle cx="5" cy="18" r="2.2" />
+    <circle cx="19" cy="18" r="2.2" />
+    <path d="M10.5 7l-4 9M13.5 7l4 9M7.2 18h9.6" />
+  </Icon>
+);
+
 export const FilterIcon = (p: IconProps) => (
   <Icon {...p}>
     <path d="M4 5h16l-6.2 7.4v5.1l-3.6 1.8v-6.9z" />
@@ -163,6 +235,27 @@ export const GlobeIcon = (p: IconProps) => (
   <Icon {...p}>
     <circle cx="12" cy="12" r="8.5" />
     <path d="M3.5 12h17M12 3.5c2.5 2.6 3.8 5.5 3.8 8.5s-1.3 5.9-3.8 8.5c-2.5-2.6-3.8-5.5-3.8-8.5s1.3-5.9 3.8-8.5z" />
+  </Icon>
+);
+
+export const FileIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M6 3h8l4 4v14H6z" />
+    <path d="M14 3v5h4" />
+  </Icon>
+);
+
+export const DownloadIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M12 4v11M8 11l4 4 4-4" />
+    <path d="M4 19h16" />
+  </Icon>
+);
+
+export const SignInIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3" />
+    <path d="M4 12h10M10 8l4 4-4 4" />
   </Icon>
 );
 

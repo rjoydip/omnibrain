@@ -4,6 +4,7 @@ import { Hono } from "hono";
 import { type AppEnv, dbOf, repoOf } from "./env";
 import type { Ctx } from "./http";
 import { buildItemInput } from "./services/items";
+import { relatedForItem } from "./services/graph";
 import { searchWorkspace } from "./services/search";
 
 const PROTOCOL_VERSION = "2025-06-18";
@@ -56,6 +57,20 @@ const TOOLS = [
         tags: { type: "array", items: { type: "string" } },
       },
       required: ["text"],
+    },
+  },
+  {
+    name: "omnibrain_related",
+    title: "Related knowledge",
+    description:
+      "List items related to one saved item by explicit links, shared tags, or semantic similarity.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Item id from search or recent results" },
+        limit: { type: "number", description: "1-12, default 6" },
+      },
+      required: ["id"],
     },
   },
 ];
@@ -205,6 +220,23 @@ async function handle(c: Ctx, workspaceId: string, req: RpcRequest) {
               url: i.url,
               source: i.source,
               captured_at: i.captured_at,
+            })),
+          });
+        }
+        if (name === "omnibrain_related") {
+          const itemId = String(args.id ?? "");
+          if (!itemId) return textResult(id, { error: "id is required" }, true);
+          const limit = Math.min(Math.max(Number(args.limit ?? 6) || 6, 1), 12);
+          const related = await relatedForItem(c.env, workspaceId, itemId, limit);
+          if (!related) return textResult(id, { error: "item not found" }, true);
+          return textResult(id, {
+            results: related.map((r) => ({
+              id: r.id,
+              title: r.title,
+              url: r.url,
+              source: r.source,
+              relation: r.relation,
+              weight: Number(r.weight.toFixed(4)),
             })),
           });
         }

@@ -1,7 +1,11 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
   "plugins": ["typescript", "unicorn", "oxc", "import", "react", "jsx-a11y", "promise"],
-  "env": { "browser": true, "node": true, "es2024": true },
+  "env": {
+    "browser": true,
+    "node": true,
+    "es2024": true
+  },
   "categories": {
     "correctness": "error",
     "suspicious": "warn",
@@ -13,7 +17,12 @@
     "react/react-in-jsx-scope": "off",
     "react/set-state-in-effect": "off",
     "jsx-a11y/prefer-tag-over-role": "off",
-    "eslint/no-unused-vars": ["error", { "ignoreRestSiblings": true }],
+    "eslint/no-unused-vars": [
+      "error",
+      {
+        "ignoreRestSiblings": true
+      }
+    ],
     "eslint/no-await-in-loop": "off",
     "oxc/no-map-spread": "off",
     "no-underscore-dangle": "off",
@@ -27,5 +36,13 @@
     ".data/**",
     ".alchemy/**",
     "omnibrain_dashboard.tsx"
+  ],
+  "overrides": [
+    {
+      "files": ["apps/web/src/components/Markdown.tsx"],
+      "rules": {
+        "react/no-array-index-key": "off"
+      }
+    }
   ]
 }

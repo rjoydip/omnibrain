@@ -13,6 +13,8 @@ import {
 
 export const SESSION_COOKIE = "ob_session";
 export const OTP_TTL_MS = 10 * 60 * 1000;
+/** Minimum gap between two emails for the same address. */
+export const OTP_RESEND_MS = 60 * 1000;
 export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 export const MAX_OTP_ATTEMPTS = 5;
 
@@ -23,6 +25,20 @@ export function hashOtp(secret: string, email: string, code: string): Promise<st
 export interface RequestedOtp {
   code: string;
   expiresAt: number;
+}
+
+/**
+ * Durable per-email cooldown. The stored expiry minus the TTL is when the last
+ * code was issued, so this works across Worker isolates without another column.
+ */
+export async function canRequestOtp(
+  db: SqlClient,
+  email: string,
+  now = Date.now(),
+): Promise<boolean> {
+  const row = await getOtp(db, email);
+  if (!row) return true;
+  return now - (row.expires_at - OTP_TTL_MS) >= OTP_RESEND_MS;
 }
 
 /** Stores a hashed 6-digit code. The plaintext is returned only so dev mode can echo it. */

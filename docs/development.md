@@ -16,7 +16,7 @@ bun run dev
 | Service | URL                          | Notes                                    |
 | ------- | ---------------------------- | ---------------------------------------- |
 | Web     | http://localhost:5173        | Vite, proxies `/api` and `/mcp` to :8787 |
-| API     | http://localhost:8787        | `Bun.serve`, SQLite, seed data           |
+| API     | http://localhost:8787        | `Bun.serve`, local SQLite                |
 | Health  | http://localhost:8787/health | No auth                                  |
 
 Demo login: `demo@omnibrain.local`. The OTP is printed in the API terminal and returned as
@@ -54,7 +54,7 @@ apps/api/src/routes/       auth, items, search, apps, imports, keys, account
 apps/api/src/services/     enrich, search, connectors, items, mail
 apps/api/src/mcp.ts        JSON-RPC tools
 apps/api/src/worker.ts     fetch + queue + scheduled
-apps/api/src/dev.ts        Bun server, SQLite, seed
+apps/api/src/dev.ts        Bun server, local SQLite
 packages/core/             schemas, errors, ids, entitlements
 packages/db/               migration SQL, D1/SQLite client, scoped repository
 packages/auth/             OTP + sessions
@@ -87,10 +87,12 @@ Copy `.env.example` to `.env` and fill only what you need:
 
 - `AUTH_SECRET` — required in production; a dev fallback exists in `dev.ts`.
 - `APP_ORIGIN` — web origin; dev default `http://localhost:5173`.
-- `RESEND_KEY` / `RESEND_FROM` — production email delivery. In development the code is returned
-  directly and no email is sent; in production a missing key makes sign-in fail loudly.
-- `NOTION_*`, `X_*`, `RAINDROP_*` — optional OAuth client fallbacks. Preferred path is
-  App Store → credentials, which stores them AES-GCM encrypted in the database.
+- `EMAIL_FROM` — sender for Cloudflare Email Service (e.g. `OmniBrain <login@example.com>`). The
+  Worker needs a `send_email` binding, which `alchemy.run.ts` provisions automatically. In
+  development the code is returned directly and no email is sent; in production a missing binding
+  makes sign-in fail loudly.
+- `NOTION_*`, `GH_*`, `GOOGLE_*` — optional OAuth clients. Set them once to enable
+  one-click sign-in in the App Store; there is no in-app client-secret form.
 - `TOKEN_KEY` — encryption key for connector tokens and stored credentials (falls back to
   `AUTH_SECRET`).
 
@@ -118,8 +120,18 @@ utilities, not CI gates.
 4. Route: add to the relevant `apps/api/src/routes/*.ts`; call `requireRole` for writes.
 5. Test: API test with `app.request` and a real in-memory DB. Add a cross-tenant assertion if it
    reads tenant data.
-6. UI: fetch through `apps/web/src/lib/api.ts`; add loading, empty and error states.
+6. UI: fetch through `apps/web/src/lib/api.ts` (it adds CSRF); show `SectionLoading` before content;
+   put view/filter state in the URL; mutate optimistically and resync with `refresh()` on failure.
+   Add loading, empty and error states.
 7. Docs: update `docs/api.md` and this file if commands changed.
+
+### SPA conventions
+
+- `view`, `status`, `source`, `layout` and the Atlas filter live in URL search params; use
+  `history.pushState`/`popstate`. Theme, accent and panel width stay in localStorage.
+- Lists update optimistically and resync on failure; in-flight `refresh()` is aborted, not awaited.
+- Show `SectionLoading` until the first page arrives. Heavy views and canvases stay lazy.
+- Memoize list rows and keep their callbacks stable; the initial bundle budget is 200 KB gzip.
 
 ## Formatting, linting, typechecking
 

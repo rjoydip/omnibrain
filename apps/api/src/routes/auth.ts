@@ -1,4 +1,5 @@
 import {
+  canRequestOtp,
   issueSession,
   requestOtp,
   resolveSession,
@@ -7,7 +8,7 @@ import {
   verifyOtp,
 } from "@omnibrain/auth";
 import { AppError, RequestOtpSchema, VerifyOtpSchema } from "@omnibrain/core";
-import { bootstrapUser, forWorkspace, listWorkspaces } from "@omnibrain/db";
+import { bootstrapUser, consumeOtp, forWorkspace, listWorkspaces } from "@omnibrain/db";
 import { Hono } from "hono";
 import { getCookie } from "hono/cookie";
 import { type AppEnv, dbOf, isDev } from "../env";
@@ -22,16 +23,17 @@ authRoutes.use("*", originGuard);
 authRoutes.post("/request-otp", body(RequestOtpSchema), async (c) => {
   const { email } = c.req.valid("json");
   const ip = clientIp(c);
-  const otpLimit = isDev(c.env) ? 50 : 10;
+  const dev = isDev(c.env);
+  const db = dbOf(c.env);
+  const otpLimit = dev ? 50 : 10;
   if (!rateLimit(`otp:ip:${ip}`, otpLimit, 10 * 60_000)) {
     throw new AppError("rate_limited", "Too many code requests. Try again later.", 429);
   }
-  if (!rateLimit(`otp:email:${email}`, isDev(c.env) ? 50 : 5, 10 * 60_000)) {
+  if (!rateLimit(`otp:email:${email}`, dev ? 50 : 5, 10 * 60_000)) {
     throw new AppError("rate_limited", "Too many code requests for this email.", 429);
   }
 
-  const dev = isDev(c.env);
-  if (!dev && !c.env.RESEND_KEY) {
+  if (!dev && !c.env.EMAIL) {
     throw new AppError(
       "email_not_configured",
       "Email delivery is not configured on this deployment",
@@ -39,7 +41,12 @@ authRoutes.post("/request-otp", body(RequestOtpSchema), async (c) => {
     );
   }
 
-  const { code, expiresAt } = await requestOtp(dbOf(c.env), email, c.env.AUTH_SECRET);
+  // Durable cooldown: one email per address per minute, across isolates.
+  if (!dev && !(await canRequestOtp(db, email))) {
+    throw new AppError("rate_limited", "Please wait a minute before requesting another code.", 429);
+  }
+
+  const { code, expiresAt } = await requestOtp(db, email, c.env.AUTH_SECRET);
 
   if (dev) {
     console.log(`[omnibrain:dev] OTP ${code} for ${email}`);
@@ -54,6 +61,8 @@ authRoutes.post("/request-otp", body(RequestOtpSchema), async (c) => {
 
   const delivered = await sendOtpEmail(c.env, email, code);
   if (!delivered) {
+    // Nothing was sent, so drop the code and let the user retry past the cooldown.
+    await consumeOtp(db, email);
     throw new AppError("email_failed", "Could not send the code. Try again in a moment.", 502);
   }
   return c.json({

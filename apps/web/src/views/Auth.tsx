@@ -63,7 +63,7 @@ export function AuthScreen({ onAuthed }: { onAuthed: (me: Me) => void }) {
             not storage.
           </h1>
           <p className="mt-5 max-w-md text-[15px] leading-relaxed text-muted">
-            Bookmarks, Notion pages, X posts and Keep notes in one place. Search by the shape of the
+            Bookmarks, Notion pages and GitHub gists in one place. Search by the shape of the
             memory, not the folder you filed it in.
           </p>
           <ul className="mt-8 space-y-3 text-[13px] text-muted">

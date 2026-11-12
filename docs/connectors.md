@@ -6,20 +6,18 @@ scopes and server-side fetch, and avoids a Workers-for-Platforms runtime.
 
 ## Catalog
 
-| App               | Auth           | Sync           | Status      | Notes                                             |
-| ----------------- | -------------- | -------------- | ----------- | ------------------------------------------------- |
-| Browser bookmarks | none           | file import    | GA          | Chrome/Edge/Firefox/Safari HTML, parsed on-device |
-| Notion            | OAuth 2        | cursor poll    | Beta        | Public integration; ~3 req/s                      |
-| X bookmarks       | OAuth 2 + PKCE | pagination     | Beta        | Paid API tier required; archive import fallback   |
-| Raindrop.io       | OAuth 2        | pagination     | Beta        | Collections + tags                                |
-| Google Keep       | none           | Takeout import | Import only | No consumer API exists                            |
+| App               | Auth            | Sync        | Status | Notes                                             |
+| ----------------- | --------------- | ----------- | ------ | ------------------------------------------------- |
+| Browser bookmarks | none            | file import | GA     | Chrome/Edge/Firefox/Safari HTML, parsed on-device |
+| Notion            | OAuth 2         | cursor poll | Beta   | Public integration; ~3 req/s                      |
+| GitHub            | OAuth 2 / token | page poll   | Beta   | Gists; PAT works without an OAuth app             |
 
 Readwise Reader, Obsidian and Pocket are intentionally absent until their importers exist. Pocket's
 service was discontinued in July 2025.
 
 ## Connection lifecycle
 
-```
+```sh
 available ──install──► authorizing ──callback──► connected
                                       │             │
                                       │             ├─ pause ──► paused ──resume──► connected
@@ -34,48 +32,85 @@ keep.
 
 ## OAuth setup
 
-The API is the OAuth client. Redirect URI for all providers:
+The API is the OAuth client. The provider console needs one redirect URI per environment:
 
-```
+```sh
 https://<api-host>/api/v1/oauth/<app>/callback
+http://localhost:8787/api/v1/oauth/<app>/callback   # local dev
 ```
 
-Local: `http://localhost:8787/api/v1/oauth/<app>/callback`.
+`<app>` is the connector id from `packages/connectors/src/registry.ts`, **not** the provider name:
+
+| Provider | App id   | Environment variables                      | Redirect URI suffix |
+| -------- | -------- | ------------------------------------------ | ------------------- |
+| Notion   | `notion` | `NOTION_CLIENT_ID`, `NOTION_CLIENT_SECRET` | `/oauth/notion/…`   |
+| GitHub   | `github` | `GH_CLIENT_ID`, `GH_CLIENT_SECRET`         | `/oauth/github/…`   |
+
+The callback route is built from `app.id` in `apps/api/src/routes/apps.ts`, so the id and the
+provider name must stay in sync when a connector is added.
+
+### Where credentials live
+
+Credentials are resolved per request by `resolveProvider()` in `apps/api/src/services/connectors.ts`.
+A DB row wins; environment variables are the fallback.
+
+1. **Environment** (normal path, one-click sign-in). Add the vars to `.env` at the repo root — Bun
+   loads it for `bun run dev`. `.env.example` lists every name, commented out. Production values are
+   wired through `alchemy.run.ts`.
+2. **Database** (API-only fallback). `PUT /api/v1/apps/<app>/credentials` with
+   `{ "client_id": "…", "client_secret": "…" }` stores the secret encrypted with `TOKEN_KEY`
+   (falling back to `AUTH_SECRET`); `DELETE` on the same path clears it. The App Store shows the
+   source as `credential_source: "db" | "env"`.
+
+Restart the dev server after changing `.env` — the vars are read at boot. Secrets are never logged
+and never returned by an API; the secret is only decrypted inside the token exchange and
+`syncConnection`.
 
 ### Notion
 
-1. Create a public integration at <https://www.notion.so/my-integrations>.
+1. Open <https://www.notion.so/my-integrations> and create a **new integration**.
+2. Choose type **Public** (OAuth), name it, and pick the workspace it belongs to.
+3. Under **OAuth Domain & URIs**, add both redirect URIs above.
+4. Capabilities: enable **Read content** — that is the `read_content` scope this connector requests.
+5. Copy the **OAuth client ID** and **OAuth client secret** from the integration's configuration.
+6. Set `NOTION_CLIENT_ID` / `NOTION_CLIENT_SECRET` in `.env` and restart.
+7. After connecting, each page or database must be **shared with the integration** in Notion; the
+   integration only sees what is explicitly shared.
+
+Exchange uses JSON + Basic auth (not form-encoded), so Notion is handled specially in
+`packages/connectors`. The adapter enumerates pages through `POST /v1/search` sorted by last edited
+time, then reads each page body from `GET /v1/blocks/{id}/children` and stores it as markdown (up to
+two block pages, three requests in flight, one retry on `429`). Search pages are 25 results each so a
+single run stays within Worker subrequests. There is no reliable page-content webhook, so sync is a
+15-minute cursor poll at ~3 req/s.
+
+### GitHub
+
+1. Create an OAuth app at <https://github.com/settings/developers> (optional).
 2. Add the redirect URI above.
-3. Add the client ID and secret in App Store → credentials (stored encrypted in the database).
-   `NOTION_CLIENT_ID` / `NOTION_CLIENT_SECRET` remain an optional env fallback.
-4. Requested scope: `read_content` (the integration also needs pages shared with it in Notion).
+3. Set `GH_CLIENT_ID` / `GH_CLIENT_SECRET` in the server environment, then restart.
 
-Exchange uses JSON + Basic auth; the adapter enumerates pages through `POST /v1/search` sorted by
-last edited time. There is no reliable page-content webhook, so sync is a 15-minute cursor poll.
+Sign-in is one click once those vars are present: the App Store redirects straight to the
+provider. GitHub also accepts a pasted personal access token, so the OAuth app is optional.
+`POST /apps/connections` with `{ app_id, token }` verifies the token through
+`GET /user`, stores it encrypted, and starts the backfill. The adapter pages
+`GET /gists?per_page=100&page=N`; private gists need the `gist` scope.
 
-### X
+If a provider is not configured, `POST /apps/connections` returns `connector_not_configured` with
+"`<App> OAuth credentials are missing. Add them in the App Store.`" It never fakes an install.
 
-1. Create an OAuth 2.0 app with confidential client settings.
-2. Enable the redirect URI above and scopes `bookmark.read tweet.read users.read offline.access`.
-3. Add the client ID and secret in App Store → credentials (or set `X_CLIENT_ID` /
-   `X_CLIENT_SECRET` as an env fallback).
-4. Confirm the account has a paid API tier with bookmark access.
+### Verifying a setup
 
-The adapter calls `/2/users/me` once to resolve the external account id, then
-`/2/users/:id/bookmarks`. Pagination is token-based and has no `since_id`; sync stops when a page
-contains no newly created items.
-
-### Raindrop.io
-
-1. Create an OAuth app in Raindrop settings.
-2. Add the redirect URI.
-3. Add the client ID and secret in App Store → credentials (or set `RAINDROP_CLIENT_ID` /
-   `RAINDROP_CLIENT_SECRET` as an env fallback).
-
-The adapter pages `GET /rest/v1/raindrops/0?page=N&perpage=50&sort=-created`.
-
-If a provider is not configured, `POST /apps/connections` returns `connector_not_configured` and the
-UI explains which environment variable is missing. It never fakes an install.
+1. `bun run dev` and open the App Store. A configured provider shows a one-click **Install**; a
+   missing one fails with `connector_not_configured`.
+2. Install → the provider consent screen → back to `/?view=apps&installed=<app>&fetched=…&created=…`.
+   The callback runs the first sync (one page, to stay within Worker subrequest limits), so the
+   App Store opens with items already imported.
+3. Sync again for the rest of the backlog; a non-2xx response flips the connection to `degraded` and
+   stores a truncated `last_error` on the card.
+4. Common failures: `redirect_uri_mismatch` (the dev SPA proxies with the original Host, so the URI
+   is `http://localhost:5173/...` unless the API is called directly — register both), unshared Notion
+   pages (connects but imports nothing), or a stale process still holding old env values (restart).
 
 ## File imports
 
@@ -86,17 +121,11 @@ Safari. It handles nested `<DL>` folders (folders become tags), decodes entities
 (seconds → ms), drops non-HTTP URLs, and dedupes by URL. Parsing runs in the browser, so browsing
 history never leaves the machine beyond the items the user imports.
 
-### Google Keep Takeout
-
-`packages/connectors/src/keep.ts` accepts Takeout JSON and maps `title`, `textContent`,
-`listContent` (checkboxes), `labels`, `createdTimestampUsec`, and skips trashed notes. This is a
-one-way import by design. The Keep API is Google Workspace-only and requires domain-wide delegation,
-so it is not a consumer option.
-
 ## Adding a connector
 
 1. **Manifest** in `packages/connectors/src/registry.ts`: id, name, category, description, auth,
-   scopes, capabilities, schedule, glyph/tone. Keep the description honest about limits.
+   scopes, capabilities, schedule, glyph/tone. Add `tokenAuth: true` when a pasted access token is
+   an alternative to OAuth. Keep the description honest about limits.
 2. **Adapter** (`packages/connectors/src/<app>.ts`): export a `list()` that returns
    `{ items: ConnectorItem[], nextCursor }`. Use the injected `fetchImpl` so tests never hit the
    network.
@@ -137,7 +166,7 @@ export async function listExample(input: {
 
 - Tokens are decrypted only inside `syncConnection`, never returned by an API.
 - Upserts are idempotent: `(workspace_id, connection_id, external_id)` plus canonical URL dedupe.
-- A page where nothing is new stops the loop (X/Raindrop revisit from the top).
+- A page where nothing is new stops the loop.
 - `maxPages` bounds a single run; the cursor persists for the next run.
 - Any non-2xx marks `degraded`, stores a truncated error, and leaves existing items intact.
 - Pausing stops scheduled/manual sync but keeps the cursor.
@@ -146,6 +175,5 @@ export async function listExample(input: {
 
 ## What not to build
 
-- Keep live sync. There is no consumer API; an unofficial client would be fragile and unsafe.
 - Arbitrary plugin code. New sources are code contributions, not marketplace uploads.
 - Silent "installed" states. If credentials are missing, the UI says so.

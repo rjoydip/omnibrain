@@ -34,6 +34,7 @@ export interface ItemRow {
   title: string;
   excerpt: string | null;
   content_r2_key: string | null;
+  files_json: string | null;
   summary: string | null;
   lang: string | null;
   author: string | null;
@@ -42,6 +43,10 @@ export interface ItemRow {
   content_hash: string;
   tags_text: string;
   embedding_state: "pending" | "ready" | "failed" | "skipped";
+  enrich_error: string | null;
+  enrich_started_at: number | null;
+  archived_at: number | null;
+  graph_refreshed_at: number | null;
   deleted_at: number | null;
   created_at: number;
   updated_at: number;

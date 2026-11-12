@@ -8,7 +8,7 @@
 
 ## 1. Product thesis
 
-Everyone's knowledge is scattered across bookmarks, Notion, Keep, X, Readwise, and random tabs. Existing tools make you choose one silo or manually re-file everything. OmniBrain is the **recall layer**: install your sources once, then find anything by meaning, in one keystroke, from any AI client.
+Everyone's knowledge is scattered across bookmarks, Notion, X, Readwise, and random tabs. Existing tools make you choose one silo or manually re-file everything. OmniBrain is the **recall layer**: install your sources once, then find anything by meaning, in one keystroke, from any AI client.
 
 Three promises, in priority order:
 
@@ -70,7 +70,7 @@ Plans (numbers are placeholders to validate in Phase 4, enforcement code is shar
 | Frontend                  | React 19 + Vite + Tailwind v4 + Radix primitives                                                  | Fast, accessible, no heavy UI kit                                         |
 | Auth                      | Email OTP + opaque hashed session tokens (no provider lock-in)                                    | No per-MAU tax, self-hosted sessions                                      |
 | Billing                   | Stripe Checkout + Customer Portal + webhooks                                                      | Standard, Workers-compatible                                              |
-| Email                     | Resend (transactional)                                                                            | Simple fetch-based API                                                    |
+| Email                     | Cloudflare Email Service (`send_email` binding)                                                   | No third-party API key, sends from Workers                                |
 | Observability             | Workers Logs → Axiom, Sentry, Analytics Engine                                                    | Errors + product metrics                                                  |
 | CI/CD                     | GitHub Actions + Alchemy                                                                          | CI on PR, prod on tag (no preview worker)                                 |
 
@@ -151,7 +151,7 @@ Resources to add in Phase 0, each proven by a deploy + a smoke request:
 | `Queue` + consumer                                                                         | Enrichment jobs                                                                                          | At-least-once; handlers must be idempotent; DLQ after 5 attempts        |
 | `DurableObject`                                                                            | Per-workspace quota counters, OAuth refresh locks, sync leases                                           | One DO per workspace (`idFromName(workspaceId)`)                        |
 | Cron Triggers                                                                              | Connector sync, trash purge, usage flush                                                                 | Every 15 min (Pro/Team), hourly (Free)                                  |
-| Secrets                                                                                    | `BETTER_AUTH_SECRET`, `MASTER_KEY` (AES-GCM), `STRIPE_SECRET`, `RESEND_KEY`, provider client IDs/secrets | Never in `alchemy.run.ts` values; bind from env/secret store            |
+| Secrets                                                                                    | `BETTER_AUTH_SECRET`, `MASTER_KEY` (AES-GCM), `STRIPE_SECRET`, `EMAIL_FROM`, provider client IDs/secrets | Never in `alchemy.run.ts` values; bind from env/secret store            |
 
 **Alchemy rules:** `alchemy.run.ts` is the only place resources are declared. No `wrangler.toml` in any app. Preview stages are destroyed on PR close. Prod deploy is blocked unless `ci` is green on the same commit. State lives in Cloudflare (`Cloudflare.state()`); no local state file in CI.
 
@@ -219,7 +219,7 @@ create table memberships (
 create table connections (
   id text primary key,
   workspace_id text not null references workspaces(id) on delete cascade,
-  app_id text not null,                        -- 'notion','keep','x','browser',...
+  app_id text not null,                        -- 'notion','x','browser',...
   external_account_id text,
   status text not null check (status in ('authorizing','connected','degraded','paused','revoked')),
   scopes text not null,                        -- JSON array
@@ -235,7 +235,7 @@ create table items (
   id text primary key,
   workspace_id text not null references workspaces(id) on delete cascade,
   kind text not null check (kind in ('bookmark','note','highlight','file')),
-  source text not null,                        -- 'web','browser','notion','keep','x','raindrop','readwise','mcp'
+  source text not null,                        -- 'web','browser','notion','x','raindrop','readwise','mcp'
   connection_id text references connections(id) on delete set null,
   external_id text,
   url text,
@@ -296,7 +296,7 @@ create table item_tags (
 create table imports (
   id text primary key,
   workspace_id text not null,
-  kind text not null,                          -- 'browser_html','keep_takeout','obsidian_zip'
+  kind text not null,                          -- 'browser_html','obsidian_zip'
   status text not null check (status in ('queued','parsing','enriching','done','failed')),
   total integer not null default 0,
   processed integer not null default 0,
@@ -393,7 +393,7 @@ capture / import / connector tick
 - **Backfill:** connector backfill writes items in pages of 100 and reports progress to `imports`; UI subscribes via SSE or polls 2s.
 - **Canonical URL:** lowercase host, strip `utm_*`, `fbclid`, `gclid`, `ref`, trailing slash, fragment (keep `#!`), sort query params. Hash to `canonical_url` for dedupe. Never dedupe across workspaces.
 - **Browser import:** parse `bookmarks.html` **client-side** with `DOMParser` (privacy + zero server CPU); POST 500-item batches. Server also accepts a file upload for CLI/automation, parsed with `linkedom` and capped at 20MB. Re-import is a no-op thanks to canonical dedupe.
-- **Keep Takeout / Obsidian:** client-side zip read (JSZip) → markdown/HTML → same batch path. No server-side unzip unless a signed-in user uploads via API.
+- **Obsidian:** client-side zip read (JSZip) → markdown/HTML → same batch path. No server-side unzip unless a signed-in user uploads via API.
 - **Snapshots:** store sanitized text in R2 (`ws/<id>/items/<itemId>.md`, max 256KB). Raw HTML is not retained by default (privacy + cost); if enabled per workspace, 30-day lifecycle rule.
 
 ---
@@ -443,20 +443,19 @@ Disconnect: best-effort revoke at provider → status `revoked` → ask "keep im
 
 ### 10.2 Provider matrix (this is where most plans lie)
 
-| Provider                                       | Auth                         | API reality                                                                                                                                     | Sync                                                     | Launch                                       |
-| ---------------------------------------------- | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- | -------------------------------------------- |
-| Browser bookmarks (Chrome/Edge/Firefox/Safari) | none                         | HTML/JSON export is stable; extension uses `chrome.bookmarks` / `browser.bookmarks` (MV3)                                                       | File import; extension live sync                         | **File import v1**, extension Phase 3        |
-| Notion                                         | OAuth 2 public integration   | Official API, ~3 req/s average per integration; no reliable page-content webhooks at GA                                                         | Poll by `last_edited_time` cursor, 15 min                | Phase 3                                      |
-| X (Twitter)                                    | OAuth 2.0 PKCE, user context | `GET /2/users/:id/bookmarks`, **paid API tier required**, tight per-user rate limits, pagination only (no `since_id`)                           | Stop at first known tweet id; archive import as fallback | Phase 3, gated on API access                 |
-| Google Keep                                    | **No consumer API**          | Keep API is Google Workspace only (service account + domain-wide delegation, admin consent). Unofficial libraries are not acceptable for a SaaS | **Takeout import only** (`Takeout/Keep/*.json`/HTML)     | Phase 2 import; Workspace connector Phase 4+ |
-| Readwise / Reader                              | API token                    | Stable, generous; highlights + documents                                                                                                        | Incremental by `updatedAfter`                            | Phase 3                                      |
-| Raindrop.io                                    | OAuth/token                  | Official API, collections + bookmarks                                                                                                           | Incremental by `lastUpdate`                              | Phase 3                                      |
-| Pocket                                         | —                            | **Discontinued July 2025**                                                                                                                      | Import from export only; no live sync                    | Import only, if demand exists                |
-| Obsidian                                       | none                         | Local vault; no cloud API (Sync is proprietary)                                                                                                 | Markdown zip import                                      | Phase 4                                      |
-| Instapaper                                     | OAuth 1.0a / xAuth           | Works, dated                                                                                                                                    | Archive import                                           | Phase 4                                      |
-| Any URL                                        | none                         | Quick capture + bookmarklet + PWA share target                                                                                                  | Immediate                                                | Phase 1                                      |
+| Provider                                       | Auth                         | API reality                                                                                                           | Sync                                                     | Launch                                |
+| ---------------------------------------------- | ---------------------------- | --------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- | ------------------------------------- |
+| Browser bookmarks (Chrome/Edge/Firefox/Safari) | none                         | HTML/JSON export is stable; extension uses `chrome.bookmarks` / `browser.bookmarks` (MV3)                             | File import; extension live sync                         | **File import v1**, extension Phase 3 |
+| Notion                                         | OAuth 2 public integration   | Official API, ~3 req/s average per integration; no reliable page-content webhooks at GA                               | Poll by `last_edited_time` cursor, 15 min                | Phase 3                               |
+| X (Twitter)                                    | OAuth 2.0 PKCE, user context | `GET /2/users/:id/bookmarks`, **paid API tier required**, tight per-user rate limits, pagination only (no `since_id`) | Stop at first known tweet id; archive import as fallback | Phase 3, gated on API access          |
+| Readwise / Reader                              | API token                    | Stable, generous; highlights + documents                                                                              | Incremental by `updatedAfter`                            | Phase 3                               |
+| Raindrop.io                                    | OAuth/token                  | Official API, collections + bookmarks                                                                                 | Incremental by `lastUpdate`                              | Phase 3                               |
+| Pocket                                         | —                            | **Discontinued July 2025**                                                                                            | Import from export only; no live sync                    | Import only, if demand exists         |
+| Obsidian                                       | none                         | Local vault; no cloud API (Sync is proprietary)                                                                       | Markdown zip import                                      | Phase 4                               |
+| Instapaper                                     | OAuth 1.0a / xAuth           | Works, dated                                                                                                          | Archive import                                           | Phase 4                               |
+| Any URL                                        | none                         | Quick capture + bookmarklet + PWA share target                                                                        | Immediate                                                | Phase 1                               |
 
-**Decision:** launch with browser file import + Notion + X (if API access is granted) + Raindrop. Keep is an import, not a sync, and the UI must say so. Do not promise Keep live sync in marketing.
+**Decision:** launch with browser file import + Notion + X (if API access is granted) + Raindrop. Do not promise Keep live sync in marketing.
 
 ### 10.3 App Store UX
 
@@ -635,7 +634,7 @@ jobs:
 ```
 
 - `deploy.yml`: on tag `v*`, require green CI on the same SHA → `bun alchemy deploy --stage prod` → smoke tests (`/health`, one search, one MCP tool) → notify. Fail closed. No preview worker stage.
-- Secrets: `CLOUDFLARE_API_TOKEN` (scoped), `AUTH_SECRET`, `TOKEN_KEY`, Stripe, Resend, provider apps. No secrets in repo, no secrets baked into the SPA.
+- Secrets: `CLOUDFLARE_API_TOKEN` (scoped), `AUTH_SECRET`, `TOKEN_KEY`, Stripe, `EMAIL_FROM`, provider apps. No secrets in repo, no secrets baked into the SPA.
 - Branch protection: 1 review, required checks, linear history, no direct pushes to `main`.
 
 ---
@@ -666,7 +665,7 @@ Sized for 2 full-stack engineers. Weeks are estimates, not promises.
 | **0. Foundation**              | 1     | Bun workspace, Alchemy stack, D1 + migrations, Vite shell, OTP auth, CI, design tokens                                                                            | Clean clone → dev URL in < 15 min; deploy from CI; signup/login; `/health` green; one vector insert/query; queue round-trip                                                           |
 | **1. Core knowledge base**     | 3     | Workspaces/roles, items CRUD, capture, R2 storage, hybrid search, enrichment pipeline, Atlas + List + Inspector, Recall omnibox (results only), trash/GDPR export | 1,000 seeded items searchable; p95 search ≤ 400ms locally; cross-tenant canary test passes; keyboard-only capture + search; delete removes D1+vectors+R2                              |
 | **2. Import & onboarding**     | 2     | Browser HTML/JSON import (client parse), batch API, progress UI, dedupe, sample workspace, onboarding checklist, PWA + share target                               | Import 10k bookmarks in < 10 min; re-import creates 0 duplicates; onboarding reaches first search in < 3 min; Lighthouse budgets met                                                  |
-| **3. App Store & connectors**  | 3     | Connector SDK, install/revoke lifecycle, health states, Notion + X (if access) + Raindrop + Keep Takeout import, sync leases, reconnect flow, extension MVP       | Install → OAuth → 100 items synced → disconnect with data choice; expired token surfaces a working reconnect CTA; sync idempotent across overlapping runs                             |
+| **3. App Store & connectors**  | 3     | Connector SDK, install/revoke lifecycle, health states, Notion + X (if access) + Raindrop, sync leases, reconnect flow, extension MVP                             | Install → OAuth → 100 items synced → disconnect with data choice; expired token surfaces a working reconnect CTA; sync idempotent across overlapping runs                             |
 | **4. MCP, billing, hardening** | 2     | MCP server + OAuth DCR, API keys, Stripe plans/portal/webhooks, quota enforcement, answer synthesis with citations, observability + alerts, runbooks              | Claude Desktop/Cursor can search and fetch; upgrade → Pro limits apply without redeploy; 100% of alerts have runbooks; spend alarm fires in staging; security review checklist signed |
 | **5. Beta → launch**           | 2     | Accessibility audit, load test, docs, marketing site, migration of prototype UI, 20-user closed beta, fix top 10 issues                                           | WCAG AA on core flows; p95 SLOs met under 10× peak; zero P0/P1 open; support inbox + status page live                                                                                 |
 
@@ -679,7 +678,6 @@ Sized for 2 full-stack engineers. Weeks are estimates, not promises.
 | Risk                                  | Likelihood | Impact | Mitigation / trigger                                                                             |
 | ------------------------------------- | ---------- | ------ | ------------------------------------------------------------------------------------------------ |
 | X API access denied or too expensive  | High       | Medium | Ship archive import; treat X as optional; gate marketing on signed API tier                      |
-| Google Keep has no consumer API       | Certain    | Medium | Takeout import only; UI labels "import", never "sync"; Workspace connector later                 |
 | SSRF / malicious URL content          | Medium     | High   | §6 ingress controls; block private ranges; sanitize; prompt-injection delimiters; security tests |
 | Token leakage                         | Low        | High   | Envelope encryption, redaction, no token logging, audit, rotation drill in Phase 4               |
 | D1 write throughput / hot rows        | Medium     | High   | DO counters, batched writes, no per-request counters; load test in Phase 4                       |
@@ -715,7 +713,7 @@ Sized for 2 full-stack engineers. Weeks are estimates, not promises.
 ## 22. Open decisions (resolve before Phase 3)
 
 1. Auth: email OTP sessions are in place; evaluate SSO for enterprise customers before adding a provider.
-2. Launch connectors: is X API access purchased? If not, launch with browser + Notion + Raindrop, Keep import.
+2. Launch connectors: is X API access purchased? If not, launch with browser + Notion + Raindrop.
 3. Pricing validation: run 10 interviews before Stripe goes live; keep limits in one config file.
 4. Extension timing: MV3 now or after beta? Default: after beta, file import covers the job.
 5. Answer synthesis model: run a 50-query quality bake-off in Phase 1, pin the winner per environment.

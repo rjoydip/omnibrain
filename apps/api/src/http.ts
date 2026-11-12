@@ -98,6 +98,35 @@ export function clearCookie(c: Ctx) {
   deleteCookie(c, SESSION_COOKIE, { path: "/" });
 }
 
+export const CSRF_COOKIE = "omnibrain_csrf";
+
+/** Readable double-submit token; paired with the session cookie on every mutation. */
+export function issueCsrfCookie(c: Ctx) {
+  if (getCookie(c, CSRF_COOKIE)) return;
+  const https = new URL(c.req.url).protocol === "https:";
+  setCookie(c, CSRF_COOKIE, crypto.randomUUID(), {
+    httpOnly: false,
+    secure: https,
+    sameSite: https ? "None" : "Lax",
+    path: "/",
+    maxAge: 30 * 24 * 60 * 60,
+  });
+}
+
+export function csrfGuard(c: Ctx, next: () => Promise<void>) {
+  const method = c.req.method;
+  if (method === "GET" || method === "HEAD" || method === "OPTIONS") return next();
+  // Browsers cannot forge Sec-Fetch-Site; same-origin tabs are already covered by originGuard.
+  const site = c.req.header("sec-fetch-site");
+  if (site === "same-origin" || site === "same-site") return next();
+  const cookie = getCookie(c, CSRF_COOKIE);
+  const header = c.req.header("x-csrf-token");
+  if (!cookie || !header || cookie !== header) {
+    throw forbidden("CSRF token missing or invalid");
+  }
+  return next();
+}
+
 export async function logout(c: Ctx) {
   const token = getCookie(c, SESSION_COOKIE);
   if (token) await destroySession(dbOf(c.env), token);
@@ -142,6 +171,17 @@ export function originGuard(c: Ctx, next: () => Promise<void>) {
     if (!originAllowed(c, c.req.header("origin"))) {
       throw forbidden("Cross-origin request rejected");
     }
+  }
+  return next();
+}
+
+/** Per-user write budget; reads stay unmetered. Best-effort per isolate, like rateLimit. */
+export function writeRateLimit(c: Ctx, next: () => Promise<void>) {
+  const method = c.req.method;
+  if (method === "GET" || method === "HEAD" || method === "OPTIONS") return next();
+  const key = `write:${c.get("workspaceId")}:${c.get("session")?.user_id ?? "anon"}`;
+  if (!rateLimit(key, 120, 60_000)) {
+    throw new AppError("rate_limited", "Too many writes. Try again in a minute.", 429);
   }
   return next();
 }

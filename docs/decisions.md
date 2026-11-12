@@ -26,13 +26,13 @@ Short ADRs for choices made while implementing PLAN.md. Each one names the ceili
 
 **Ceiling:** MCP traffic shares the API isolate and CPU budget. Split it out when MCP traffic exceeds ~20% of requests or needs independent scaling.
 
-## ADR-4: Five connectors, with honest labels
+## ADR-4: Three connectors, with honest labels
 
-**Decision:** launch catalog is Browser (file), Notion, X, Raindrop, Keep (file). Removed Readwise/Obsidian cards until their importers exist.
+**Decision:** catalog is Browser (file import), Notion and GitHub. X and Raindrop are parked until their adapters are re-enabled. Removed Readwise/Obsidian cards until their importers exist.
 
-**Why:** dead cards are worse than fewer cards. Keep has no consumer API, so it is labeled "import only" and never says "sync". X requires a paid API tier; the card says so.
+**Why:** dead cards are worse than fewer cards. Google Keep was dropped: its API is Workspace-only and only authorizes through domain-wide delegation, so a plain OAuth consent flow returns `invalid_scope`. Nothing in the catalog should require an admin console detour to connect.
 
-**Ceiling:** no Readwise highlights, Obsidian markdown zip, or Pocket (discontinued) yet. Add each with its parser and a test, not a placeholder card.
+**Ceiling:** no Readwise highlights, Obsidian markdown zip, X, Raindrop, Keep, or Pocket (discontinued) yet. Add each with its adapter and a test, not a placeholder card.
 
 ## ADR-5: Regex readability, not a DOM engine
 
@@ -103,3 +103,28 @@ surface that can drift. The Bun dev server plus tests cover review needs.
 
 **Ceiling:** no clickable URL per PR. If product review requires one, add a single ephemeral stage
 with its own D1/R2 and no provider credentials, and destroy it on PR close.
+
+## ADR-13: URL state, no client store
+
+**Decision:** `view`, `status`, `source`, `layout` and the Atlas filter are URL search params; theme,
+accent and inspector width stay in localStorage. Server data remains the source of truth. Mutations
+update the list optimistically, and `refresh()` is abortable.
+
+**Why:** there is no cross-tree writer, undo or offline need that justifies Redux/Zustand. URL state
+gives deep links and back/forward for free, and optimistic list edits remove the per-mutation refetch
+without adding a cache dependency.
+
+**Ceiling:** a reload refetches the first page. Adopt TanStack Query (or similar) only when caching,
+retries or offline mutations become real requirements.
+
+## ADR-14: Cloudflare Email Service for OTP
+
+**Decision:** send OTPs with the Workers `send_email` binding (`EMAIL`) provisioned by
+`alchemy.run.ts`. Keep a durable 60-second resend cooldown per address, derived from the stored OTP
+row, alongside per-IP/per-email windows and the 10-minute expiry.
+
+**Why:** no third-party API key to rotate, delivery stays inside Cloudflare, and the stored row makes
+the cooldown hold across isolates instead of resetting per isolate.
+
+**Ceiling:** arbitrary-recipient sending needs the Workers Paid plan and a verified sender. Move to a
+queue if OTP volume ever competes with request CPU.

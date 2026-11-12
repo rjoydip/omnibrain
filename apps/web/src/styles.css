@@ -1,6 +1,4 @@
 @import "tailwindcss";
-@import "@fontsource-variable/geist/index.css";
-@import "@fontsource-variable/geist-mono/index.css";
 @import "@omnibrain/ui/tokens.css";
 @import "kirari/theme.css";
 
@@ -18,11 +16,15 @@
   --color-signal: var(--signal);
   --color-signal-ink: var(--signal-ink);
   --color-cobalt: var(--cobalt);
+  --color-amber: var(--a-amber);
   --color-accent: var(--accent);
   --color-mint: var(--mint);
   --color-coral: var(--coral);
-  --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "Geist Mono Variable", ui-monospace, SFMono-Regular, monospace;
+  --font-sans:
+    "Geist", "Inter", "Segoe UI Variable", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-mono:
+    "Geist Mono", "JetBrains Mono", "Cascadia Code", "SFMono-Regular", Consolas, ui-monospace,
+    monospace;
   --radius-card: var(--radius);
 }
 
@@ -39,7 +41,7 @@
     margin: 0;
     background: var(--canvas);
     color: var(--text);
-    font-family: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+    font-family: var(--font-sans);
     font-feature-settings:
       "ss01" 1,
       "cv11" 1;
@@ -52,6 +54,10 @@
   select {
     font: inherit;
     color: inherit;
+  }
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]) {
+    cursor: pointer;
   }
   a {
     color: var(--accent);
@@ -89,11 +95,14 @@
     border: 0;
     border-radius: var(--radius);
   }
+  .inspector-spring {
+    transition: width 260ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
   .hairline {
     border: 0;
   }
   .kbd {
-    font-family: "Geist Mono Variable", ui-monospace, monospace;
+    font-family: var(--font-mono);
     font-size: 9px;
     line-height: 1;
     padding: 3px 5px;
@@ -141,6 +150,7 @@
     color: var(--signal);
   }
   .row {
+    position: relative;
     display: flex;
     width: 100%;
     gap: 10px;
@@ -150,6 +160,22 @@
     border-radius: 6px;
     border: 0;
     transition: background 100ms ease;
+  }
+  .row::before {
+    content: "";
+    position: absolute;
+    left: 1px;
+    top: 8px;
+    bottom: 8px;
+    width: 2px;
+    border-radius: 2px;
+    background: var(--accent);
+    transform: scaleY(0);
+    transform-origin: center;
+    transition: transform 140ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  .row[data-selected="true"]::before {
+    transform: scaleY(1);
   }
   .row:hover {
     background: color-mix(in oklch, var(--panel) 55%, var(--raised));
@@ -163,7 +189,7 @@
     border-radius: 6px;
     display: grid;
     place-items: center;
-    font-family: "Geist Mono Variable", ui-monospace, monospace;
+    font-family: var(--font-mono);
     font-size: 11px;
     border: 0;
     background: var(--raised);
@@ -279,6 +305,19 @@
   .recall-panel,
   .toast-in,
   .skeleton {
+    animation: none;
+  }
+}
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 160ms;
+  animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
     animation: none;
   }
 }

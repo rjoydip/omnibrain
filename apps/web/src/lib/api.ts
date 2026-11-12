@@ -1,4 +1,13 @@
+import type { ItemStatus } from "./nav";
+
 const BASE = ((import.meta.env.VITE_API_URL as string | undefined) ?? "").replace(/\/$/, "");
+const CSRF_COOKIE = "omnibrain_csrf";
+
+/** Double-submit token: readable cookie, echoed in a header on every mutation. */
+function csrfHeader(): Record<string, string> {
+  const match = document.cookie.match(new RegExp(`(?:^|;\\s*)${CSRF_COOKIE}=([^;]+)`));
+  return match ? { "x-csrf-token": decodeURIComponent(match[1] ?? "") } : {};
+}
 
 export class ApiError extends Error {
   constructor(
@@ -12,19 +21,29 @@ export class ApiError extends Error {
 
 async function request<T>(
   path: string,
-  init: { method?: string; body?: unknown; headers?: Record<string, string> } = {},
+  init: {
+    method?: string;
+    body?: unknown;
+    headers?: Record<string, string>;
+    signal?: AbortSignal;
+  } = {},
 ): Promise<T> {
-  const headers: Record<string, string> = { ...init.headers };
+  const method = init.method ?? "GET";
+  const headers: Record<string, string> = {
+    ...init.headers,
+    ...(method === "GET" || method === "HEAD" ? {} : csrfHeader()),
+  };
   let body: BodyInit | undefined;
   if (init.body !== undefined) {
     headers["content-type"] = "application/json";
     body = JSON.stringify(init.body);
   }
   const res = await fetch(`${BASE}/api/v1${path}`, {
-    method: init.method ?? "GET",
+    method,
     credentials: "include",
     headers,
     body,
+    signal: init.signal,
   });
   const text = await res.text();
   const data = text ? (JSON.parse(text) as unknown) : null;
@@ -50,20 +69,53 @@ export interface Item {
   title: string;
   excerpt: string | null;
   content_r2_key: string | null;
+  files_json: string | null;
   summary: string | null;
   lang: string | null;
   author: string | null;
   captured_at: number;
   tags_text: string;
   embedding_state: "pending" | "ready" | "failed" | "skipped";
+  enrich_error: string | null;
+  enrich_started_at: number | null;
+  archived_at: number | null;
+  graph_refreshed_at: number | null;
   deleted_at: number | null;
   created_at: number;
   updated_at: number;
 }
 
+export interface SharePerson {
+  id: string;
+  email: string;
+  name: string | null;
+}
+
+export interface ItemShare {
+  token: string;
+  audience: "public" | "users";
+  recipients: SharePerson[];
+}
+
+/** Fields exposed by a public share link. */
+export interface SharedItem {
+  id: string;
+  title: string;
+  url: string | null;
+  source: string;
+  excerpt: string | null;
+  summary: string | null;
+  captured_at: number;
+}
+
 export interface SearchHit extends Item {
   score: number;
   matched: "lexical" | "semantic" | "both" | "recent";
+}
+
+export interface RelatedItem extends Item {
+  relation: "semantic" | "tag" | "link";
+  weight: number;
 }
 
 export interface SearchResponse {
@@ -123,6 +175,14 @@ export interface Account {
     mcp_calls_day: number;
     enrichments_month: number;
   };
+  queue: {
+    pending: number;
+    running: number;
+    ready: number;
+    failed: number;
+    skipped: number;
+    total: number;
+  };
   entitlements: Record<string, QuotaBucket>;
 }
 
@@ -139,6 +199,7 @@ export interface AppInfo {
   tone: "amber" | "cobalt" | "mint" | "coral" | "muted";
   schedule?: string;
   configured: boolean;
+  token_auth?: boolean;
   credential_source: "db" | "env" | null;
   installed: boolean;
   connection: {
@@ -201,12 +262,38 @@ export const api = {
   me: () => request<Me>("/auth/me"),
   logout: () => request<{ ok: boolean }>("/auth/logout", { method: "POST" }),
 
-  items: (params: { limit?: number; source?: string; kind?: string; cursor?: string } = {}) => {
+  items: (
+    params: {
+      limit?: number;
+      source?: string;
+      kind?: string;
+      cursor?: string;
+      status?: ItemStatus;
+      embedding?: "pending" | "ready" | "failed" | "skipped";
+    } = {},
+    signal?: AbortSignal,
+  ) => {
     const qs = new URLSearchParams();
     for (const [k, v] of Object.entries(params)) if (v !== undefined) qs.set(k, String(v));
-    return request<{ items: Item[]; total: number; nextCursor: string | null }>(`/items?${qs}`);
+    return request<{ items: Item[]; total: number; nextCursor: string | null }>(`/items?${qs}`, {
+      signal,
+    });
   },
   item: (id: string) => request<{ item: Item }>(`/items/${id}`),
+  queue: () =>
+    request<{
+      counts: Account["queue"];
+      items: {
+        running: Item[];
+        queued: Item[];
+        done: Item[];
+        failed: Item[];
+        skipped: Item[];
+      };
+    }>("/items/queue"),
+  runQueue: () => request<{ started: number }>("/items/queue/run", { method: "POST" }),
+  related: (id: string, limit = 6) =>
+    request<{ items: RelatedItem[] }>(`/items/${id}/related?limit=${limit}`),
   createItem: (input: {
     url?: string;
     title?: string;
@@ -217,7 +304,26 @@ export const api = {
     enrich?: boolean;
   }) => request<{ item: Item; created: boolean }>("/items", { method: "POST", body: input }),
   deleteItem: (id: string) => request<{ ok: boolean }>(`/items/${id}`, { method: "DELETE" }),
+  archiveItem: (id: string) => request<{ ok: boolean }>(`/items/${id}/archive`, { method: "POST" }),
+  unarchiveItem: (id: string) =>
+    request<{ ok: boolean }>(`/items/${id}/unarchive`, { method: "POST" }),
+  restoreItem: (id: string) => request<{ ok: boolean }>(`/items/${id}/restore`, { method: "POST" }),
+  purgeItem: (id: string) =>
+    request<{ ok: boolean }>(`/items/${id}/permanent`, { method: "DELETE" }),
   retryItem: (id: string) => request<{ ok: boolean }>(`/items/${id}/retry`, { method: "POST" }),
+  itemShare: (id: string) =>
+    request<{ share: ItemShare | null; enabled: boolean }>(`/items/${id}/share`),
+  shareItem: (id: string, recipients: string[] = []) =>
+    request<{ token: string; share: ItemShare | null; enabled: boolean }>(`/items/${id}/share`, {
+      method: "POST",
+      body: { recipients },
+    }),
+  people: (q: string) =>
+    request<{ people: SharePerson[] }>(`/account/people?q=${encodeURIComponent(q)}`),
+  unshareItem: (id: string) =>
+    request<{ enabled: boolean }>(`/items/${id}/share`, { method: "DELETE" }),
+  sharedItem: (token: string) =>
+    request<{ item: SharedItem }>(`/public/items/${encodeURIComponent(token)}`),
 
   search: (input: {
     query: string;
@@ -227,7 +333,7 @@ export const api = {
     kind?: string;
   }) => request<SearchResponse>("/search", { method: "POST", body: input }),
 
-  account: () => request<Account>("/account"),
+  account: (signal?: AbortSignal) => request<Account>("/account", { signal }),
   changePlan: (plan: "free" | "pro" | "team") =>
     request<{ ok: boolean; plan: string }>("/plan", {
       method: "PATCH",
@@ -236,18 +342,14 @@ export const api = {
   workspaces: () => request<{ workspaces: Workspace[] }>("/workspaces"),
 
   apps: () => request<{ apps: AppInfo[] }>("/apps"),
-  setCredentials: (app_id: string, clientId: string, clientSecret: string) =>
-    request<{ ok: boolean }>(`/apps/${app_id}/credentials`, {
-      method: "PUT",
-      body: { clientId, clientSecret },
-    }),
-  deleteCredentials: (app_id: string) =>
-    request<{ ok: boolean }>(`/apps/${app_id}/credentials`, { method: "DELETE" }),
-  connect: (app_id: string) =>
-    request<{ authorize_url?: string; state?: string }>("/apps/connections", {
-      method: "POST",
-      body: { app_id },
-    }),
+  connect: (app_id: string, token?: string) =>
+    request<{ authorize_url?: string; state?: string; connection_id?: string }>(
+      "/apps/connections",
+      {
+        method: "POST",
+        body: token ? { app_id, token } : { app_id },
+      },
+    ),
   syncConnection: (id: string) =>
     request<{
       ok: boolean;
@@ -265,7 +367,7 @@ export const api = {
       method: "DELETE",
     }),
 
-  createImport: (kind: "browser_html" | "keep_takeout" | "obsidian_zip", total: number) =>
+  createImport: (kind: "browser_html" | "obsidian_zip", total: number) =>
     request<{ import: ImportRow }>("/imports", { method: "POST", body: { kind, total } }),
   importBatch: (
     id: string,

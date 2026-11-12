@@ -7,6 +7,17 @@ import {
   type WorkspaceRow,
 } from "@omnibrain/db";
 
+/** The Cloudflare Email Service `send_email` binding. */
+export interface EmailSender {
+  send(message: {
+    to: string;
+    from: string;
+    subject: string;
+    text: string;
+    html: string;
+  }): Promise<unknown>;
+}
+
 export interface Env {
   DB: D1Like | SqlClient;
   BLOBS?: R2Bucket;
@@ -17,14 +28,12 @@ export interface Env {
   TOKEN_KEY?: string;
   APP_ORIGIN?: string;
   DEV_MODE?: string;
-  RESEND_KEY?: string;
-  RESEND_FROM?: string;
+  EMAIL?: EmailSender;
+  EMAIL_FROM?: string;
   NOTION_CLIENT_ID?: string;
   NOTION_CLIENT_SECRET?: string;
-  X_CLIENT_ID?: string;
-  X_CLIENT_SECRET?: string;
-  RAINDROP_CLIENT_ID?: string;
-  RAINDROP_CLIENT_SECRET?: string;
+  GH_CLIENT_ID?: string;
+  GH_CLIENT_SECRET?: string;
 }
 
 export interface Variables {

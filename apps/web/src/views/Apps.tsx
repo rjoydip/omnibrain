@@ -7,10 +7,6 @@ import {
   CardHeader,
   EmptyState,
   Input,
-  Menu,
-  MenuContent,
-  MenuItem,
-  MenuTrigger,
   Modal,
   Spinner,
   Tooltip,
@@ -18,19 +14,22 @@ import {
 import { useCallback, useEffect, useState } from "react";
 import { BrandLogo } from "../components/BrandLogo";
 import {
-  EllipsisIcon,
-  ImportIcon,
   LockIcon,
   PauseIcon,
   PlayIcon,
   PlusIcon,
   RefreshIcon,
+  SignInIcon,
   TrashIcon,
 } from "../components/icons";
 import { ApiError, type AppInfo, api } from "../lib/api";
 import { relativeTime } from "../lib/format";
 
-const ACCENT_TILE = "text-accent";
+/** Deployment env vars that enable one-click sign-in for an app. */
+function envHint(app: AppInfo): string {
+  if (app.id === "notion") return "NOTION_CLIENT_ID / NOTION_CLIENT_SECRET";
+  return "GH_CLIENT_ID / GH_CLIENT_SECRET";
+}
 
 /** "every 15m" from a cron like "*\/15 * * * *"; manual when there is no schedule. */
 function cadence(schedule?: string): string {
@@ -41,14 +40,10 @@ function cadence(schedule?: string): string {
 
 export function AppsView({
   toast,
-  onNavigateImport,
   onChanged,
-  preferred,
 }: {
   toast: (message: string, tone?: "ok" | "error") => void;
-  onNavigateImport: (appId: string) => void;
   onChanged: () => void;
-  preferred: string | null;
 }) {
   const [apps, setApps] = useState<AppInfo[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -60,10 +55,9 @@ export function AppsView({
     count: number;
     items: Array<{ title: string; url: string | null }>;
   } | null>(null);
-  const [credApp, setCredApp] = useState<AppInfo | null>(null);
-  const [credId, setCredId] = useState("");
-  const [credSecret, setCredSecret] = useState("");
-  const [credBusy, setCredBusy] = useState(false);
+  const [tokenApp, setTokenApp] = useState<AppInfo | null>(null);
+  const [token, setToken] = useState("");
+  const [tokenBusy, setTokenBusy] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -79,63 +73,85 @@ export function AppsView({
     void load();
   }, [load]);
 
+  const runSync = useCallback(
+    async (connectionId: string, appName: string) => {
+      const res = await api.syncConnection(connectionId);
+      toast(
+        `Synced ${res.fetched} items · ${res.created} new${
+          res.duplicateCount ? ` · ${res.duplicateCount} already known` : ""
+        }.`,
+        "ok",
+      );
+      if (res.duplicates.length > 0) {
+        setSyncDupes({ app: appName, count: res.duplicateCount, items: res.duplicates });
+      }
+      return res;
+    },
+    [toast],
+  );
+
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const installed = params.get("installed");
     const failed = params.get("error");
     if (installed) {
-      toast(`${installed} connected. Backfill is running.`);
+      const created = Number(params.get("created") ?? 0) || 0;
+      const fetched = Number(params.get("fetched") ?? 0) || 0;
       window.history.replaceState({}, "", window.location.pathname);
-      onChanged();
+      toast(
+        fetched > 0
+          ? `${installed} connected · ${created} imported.`
+          : `${installed} connected · nothing to import yet.`,
+      );
+      void (async () => {
+        try {
+          const res = await api.apps();
+          setApps(res.apps);
+          await load();
+          onChanged();
+        } catch (err) {
+          toast(err instanceof ApiError ? err.message : "Could not load the App Store", "error");
+        }
+      })();
     } else if (failed) {
       toast(decodeURIComponent(failed), "error");
       window.history.replaceState({}, "", window.location.pathname);
     }
-  }, [toast, onChanged]);
+  }, [toast, onChanged, load]);
 
-  function openCredentials(app: AppInfo) {
-    setCredApp(app);
-    setCredId("");
-    setCredSecret("");
+  function openToken(app: AppInfo) {
+    setTokenApp(app);
+    setToken("");
   }
 
-  async function saveCredentials() {
-    if (!credApp) return;
-    setCredBusy(true);
+  async function connectWithToken() {
+    if (!tokenApp || !token.trim()) return;
+    const target = tokenApp;
+    setTokenBusy(true);
     try {
-      await api.setCredentials(credApp.id, credId.trim(), credSecret.trim());
+      const res = await api.connect(target.id, token.trim());
+      setTokenApp(null);
+      toast(`${target.name} connected. Syncing…`, "ok");
+      if (res.connection_id) await runSync(res.connection_id, target.name);
       await load();
-      toast(`${credApp.name} credentials saved encrypted.`, "ok");
-      setCredApp(null);
+      onChanged();
     } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Could not save credentials", "error");
+      toast(err instanceof ApiError ? err.message : "Could not connect with that token", "error");
     } finally {
-      setCredBusy(false);
-    }
-  }
-
-  async function removeCredentials() {
-    if (!credApp) return;
-    setCredBusy(true);
-    try {
-      await api.deleteCredentials(credApp.id);
-      await load();
-      toast(`${credApp.name} credentials removed.`, "ok");
-      setCredApp(null);
-    } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Could not remove credentials", "error");
-    } finally {
-      setCredBusy(false);
+      setTokenBusy(false);
     }
   }
 
   async function install(app: AppInfo) {
-    if (app.auth === "file-import") {
-      onNavigateImport(app.id);
-      return;
-    }
     if (!app.configured) {
-      openCredentials(app);
+      if (app.token_auth) {
+        openToken(app);
+        return;
+      }
+      toast(
+        `${app.name} sign-in is not configured on this server. Set ${envHint(app)} and restart.`,
+        "error",
+      );
       return;
     }
     setBusy(app.id);
@@ -159,18 +175,9 @@ export function AppsView({
     if (!app.connection) return;
     setBusy(app.id);
     try {
-      const res = await api.syncConnection(app.connection.id);
-      toast(
-        `Synced ${res.fetched} items · ${res.created} new${
-          res.duplicateCount ? ` · ${res.duplicateCount} already known` : ""
-        }.`,
-        "ok",
-      );
+      await runSync(app.connection.id, app.name);
       await load();
       onChanged();
-      if (res.duplicates.length > 0) {
-        setSyncDupes({ app: app.name, count: res.duplicateCount, items: res.duplicates });
-      }
     } catch (err) {
       toast(err instanceof ApiError ? err.message : "Sync failed", "error");
       await load();
@@ -178,6 +185,9 @@ export function AppsView({
       setBusy(null);
     }
   }
+
+  // File imports live in the Import view; the store only lists installable apps.
+  const sources = apps?.filter((app) => app.auth !== "file-import") ?? [];
 
   async function togglePause(app: AppInfo) {
     if (!app.connection) return;
@@ -195,27 +205,14 @@ export function AppsView({
 
   return (
     <div className="mx-auto w-full max-w-3xl space-y-5 p-3 pb-20 md:p-4">
-      <header className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-faint">Sources</p>
-          <h1 className="mt-1 text-xl font-semibold tracking-[-0.02em]">App Store</h1>
-          <p className="mt-1 max-w-lg text-xs leading-relaxed text-muted">
-            Install a source once. Read-only scopes, visible health, and a disconnect that tells you
-            exactly what happens to imported items.
-          </p>
-        </div>
-        <Badge tone="mint">least privilege</Badge>
+      <header>
+        <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-faint">Live sources</p>
+        <h1 className="mt-1 text-xl font-semibold tracking-[-0.02em]">App Store</h1>
+        <p className="mt-1 max-w-lg text-xs leading-relaxed text-muted">
+          Connect an account once and OmniBrain keeps it in sync with read-only scopes. One-way file
+          exports live in the Import view instead.
+        </p>
       </header>
-
-      {preferred ? (
-        <div className="rounded-[var(--radius)] border border-signal/30 bg-signal/5 px-3 py-2 text-xs text-muted">
-          Continuing from the App Store:{" "}
-          <span className="font-medium text-text">
-            {apps?.find((a) => a.id === preferred)?.name ?? preferred}
-          </span>
-          . Choose the import below.
-        </div>
-      ) : null}
 
       {error ? (
         <div className="rounded-[var(--radius)] border border-coral/30 bg-coral/5 px-3 py-2 text-xs text-coral">
@@ -234,70 +231,66 @@ export function AppsView({
             </div>
           ))}
         </div>
-      ) : apps.length === 0 ? (
+      ) : sources.length === 0 ? (
         <EmptyState title="No apps" body="The catalog is empty in this deployment." />
       ) : (
         <div className="grid gap-2 sm:grid-cols-2">
-          {apps.map((app) => {
+          {sources.map((app) => {
             const connected = app.connection?.status === "connected";
             const degraded = app.connection?.status === "degraded";
             const paused = app.connection?.status === "paused";
-            const installLabel =
-              app.auth === "file-import"
-                ? `Import from ${app.name}`
-                : app.configured
-                  ? `Install ${app.name}`
-                  : `Add credentials for ${app.name}`;
-            const hint =
-              app.auth === "file-import"
-                ? "local parse"
-                : !app.configured
-                  ? "needs credentials"
-                  : "read-only";
+            const installLabel = app.configured
+              ? `Continue with ${app.name}`
+              : app.token_auth
+                ? `Connect ${app.name} with a token`
+                : `Set up ${app.name} sign-in`;
+            const statusBadge = connected
+              ? { label: "Connected", className: "bg-mint/10 text-mint", dot: "bg-mint" }
+              : paused
+                ? { label: "Paused", className: "bg-amber/10 text-amber", dot: "bg-amber" }
+                : degraded
+                  ? {
+                      label: "Needs attention",
+                      className: "bg-coral/10 text-coral",
+                      dot: "bg-coral",
+                    }
+                  : app.installed
+                    ? { label: "Installed", className: "bg-raised text-muted", dot: "bg-faint" }
+                    : null;
             return (
               <Card key={app.id} className="flex flex-col">
-                <CardHeader className="flex-row items-start gap-2.5 p-3 pb-2">
-                  <div className={`source-tile size-8 ${ACCENT_TILE}`}>
-                    <BrandLogo id={app.id} size={17} fallback={app.glyph} />
+                <CardHeader className="flex-row items-start gap-3 p-3.5 pb-2">
+                  <div className="source-tile size-9">
+                    <BrandLogo id={app.id} size={18} fallback={app.glyph} />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      <h2 className="truncate text-[13px] font-semibold text-text">{app.name}</h2>
-                      {app.status === "beta" ? <Badge tone="signal">beta</Badge> : null}
-                      {app.status === "import-only" ? (
-                        <Badge tone="signal">import only</Badge>
-                      ) : null}
-                    </div>
+                    <h2 className="truncate text-[13.5px] font-semibold text-text">{app.name}</h2>
                     <p className="mt-0.5 font-mono text-[9px] uppercase tracking-[0.14em] text-faint">
                       {app.category}
                     </p>
                   </div>
-                  {app.installed ? (
-                    <Tooltip label={app.connection?.status ?? "installed"}>
-                      <span
-                        className={`mt-1 size-2 shrink-0 rounded-full ${
-                          connected
-                            ? "bg-mint"
-                            : degraded
-                              ? "bg-coral"
-                              : paused
-                                ? "bg-signal"
-                                : "bg-faint"
-                        }`}
-                      />
-                    </Tooltip>
+                  {statusBadge ? (
+                    <Badge tone="muted" className={statusBadge.className}>
+                      <span className={`size-1.5 rounded-full ${statusBadge.dot}`} />
+                      {statusBadge.label}
+                    </Badge>
                   ) : null}
                 </CardHeader>
 
-                <CardContent className="px-3 pb-2">
+                <CardContent className="px-3.5 pb-3">
                   <p className="line-clamp-2 text-[11.5px] leading-relaxed text-muted">
                     {app.description}
                   </p>
-                  <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 font-mono text-[9.5px] text-faint">
+                  <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-0.5 border-t border-line/60 pt-2 font-mono text-[9.5px] text-faint">
                     <span className="truncate">
                       {app.scopes.length ? app.scopes.join(", ") : "on-device · no token"}
                     </span>
-                    {app.installed ? <span>{cadence(app.schedule)}</span> : null}
+                    {app.installed ? (
+                      <>
+                        <span aria-hidden="true">·</span>
+                        <span>{cadence(app.schedule)}</span>
+                      </>
+                    ) : null}
                   </div>
                   {degraded ? (
                     <p className="mt-1 truncate font-mono text-[9.5px] text-coral">
@@ -306,23 +299,23 @@ export function AppsView({
                   ) : null}
                 </CardContent>
 
-                <CardFooter className="mt-auto items-center gap-1 px-2 py-1.5">
+                <CardFooter className="mt-auto items-center gap-1.5 px-3 pb-3 pt-0">
                   {app.installed ? (
                     <>
                       <Tooltip label={paused ? "Resume auto-sync first" : "Sync now"}>
                         <Button
                           type="button"
-                          variant="secondary"
-                          size="sm"
+                          variant="ghost"
+                          size="icon-sm"
+                          className="text-accent"
                           onClick={() => void sync(app)}
                           disabled={busy === app.id || paused}
                           aria-label={`Sync ${app.name} now`}
                         >
                           <RefreshIcon
                             size={13}
-                            className={busy === app.id ? "animate-spin" : undefined}
+                            className={busy === app.id ? "animate-spin text-accent" : "text-accent"}
                           />
-                          Sync
                         </Button>
                       </Tooltip>
                       <span
@@ -334,82 +327,60 @@ export function AppsView({
                           ? "paused"
                           : `synced ${relativeTime(app.connection?.last_synced_at ?? null)}`}
                       </span>
-                      <Menu>
-                        <Tooltip label="Manage source">
-                          <MenuTrigger asChild>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon-sm"
-                              className="ml-auto"
-                              aria-label={`Manage ${app.name}`}
-                            >
-                              <EllipsisIcon size={13} />
-                            </Button>
-                          </MenuTrigger>
-                        </Tooltip>
-                        <MenuContent>
-                          <MenuItem
-                            onSelect={() => void togglePause(app)}
+                      <span className="ml-auto flex items-center gap-0.5">
+                        <Tooltip label={paused ? "Resume auto-sync" : "Pause auto-sync"}>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-sm"
+                            className="text-amber"
+                            onClick={() => void togglePause(app)}
                             disabled={busy === app.id}
+                            aria-label={paused ? "Resume auto-sync" : "Pause auto-sync"}
                           >
-                            {paused ? <PlayIcon size={12} /> : <PauseIcon size={12} />}
-                            {paused ? "Resume auto-sync" : "Pause auto-sync"}
-                          </MenuItem>
-                          <MenuItem onSelect={() => openCredentials(app)}>
-                            <LockIcon size={12} />
-                            OAuth credentials…
-                          </MenuItem>
-                          <div aria-hidden="true" className="my-1 h-px bg-panel" />
-                          <MenuItem
-                            onSelect={() => {
+                            {paused ? <PlayIcon size={13} /> : <PauseIcon size={13} />}
+                          </Button>
+                        </Tooltip>
+                        <Tooltip label="Delete source">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-sm"
+                            className="text-coral"
+                            onClick={() => {
                               setDisconnect(app);
                               setDeleteItems(false);
                             }}
-                            className="text-coral focus:text-coral"
+                            aria-label={`Delete ${app.name}`}
                           >
-                            <TrashIcon size={12} />
-                            Delete source…
-                          </MenuItem>
-                        </MenuContent>
-                      </Menu>
+                            <TrashIcon size={13} />
+                          </Button>
+                        </Tooltip>
+                      </span>
                     </>
                   ) : (
                     <>
                       <Tooltip label={installLabel}>
                         <Button
                           type="button"
-                          variant="primary"
+                          variant="ghost"
                           size="icon-sm"
+                          className="text-accent"
                           onClick={() => void install(app)}
                           disabled={busy === app.id}
                           aria-label={installLabel}
                         >
                           {busy === app.id ? (
                             <Spinner className="size-3" />
-                          ) : app.auth === "file-import" ? (
-                            <ImportIcon size={13} />
                           ) : app.configured ? (
+                            <SignInIcon size={13} />
+                          ) : app.token_auth ? (
                             <PlusIcon size={13} />
                           ) : (
                             <LockIcon size={12} />
                           )}
                         </Button>
                       </Tooltip>
-                      {app.auth === "oauth2" && app.configured ? (
-                        <Tooltip label="OAuth credentials">
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon-sm"
-                            onClick={() => openCredentials(app)}
-                            aria-label={`Edit ${app.name} credentials`}
-                          >
-                            <LockIcon size={11} />
-                          </Button>
-                        </Tooltip>
-                      ) : null}
-                      <span className="ml-1 font-mono text-[9px] text-faint">{hint}</span>
                     </>
                   )}
                 </CardFooter>
@@ -420,54 +391,35 @@ export function AppsView({
       )}
 
       <Modal
-        open={Boolean(credApp)}
-        onClose={() => setCredApp(null)}
-        title={`${credApp?.name ?? ""} OAuth credentials`}
+        open={Boolean(tokenApp)}
+        onClose={() => setTokenApp(null)}
+        title={`${tokenApp?.name ?? ""} access token`}
       >
         <p className="text-xs leading-relaxed text-muted">
-          Stored encrypted with AES-GCM in the database. Only the client ID and secret are needed;
-          environment variables remain a fallback for this deployment.
+          Paste a personal access token. It is verified with the provider, then stored encrypted
+          with AES-GCM.
         </p>
         <Input
-          value={credId}
-          onChange={(e) => setCredId(e.target.value)}
-          placeholder="Client ID"
-          aria-label="OAuth client ID"
-          className="mt-3"
-        />
-        <Input
-          value={credSecret}
-          onChange={(e) => setCredSecret(e.target.value)}
-          placeholder="Client secret"
-          aria-label="OAuth client secret"
+          value={token}
+          onChange={(e) => setToken(e.target.value)}
+          placeholder="Personal access token"
+          aria-label="Personal access token"
           type="password"
           autoComplete="off"
-          className="mt-2"
+          className="mt-3"
         />
         <div className="mt-4 flex flex-wrap justify-end gap-2">
-          {credApp?.credential_source === "db" ? (
-            <Button
-              type="button"
-              variant="danger"
-              size="md"
-              disabled={credBusy}
-              onClick={() => void removeCredentials()}
-            >
-              <TrashIcon size={13} />
-              Remove
-            </Button>
-          ) : null}
-          <Button type="button" variant="ghost" size="md" onClick={() => setCredApp(null)}>
+          <Button type="button" variant="ghost" size="md" onClick={() => setTokenApp(null)}>
             Cancel
           </Button>
           <Button
             type="button"
             variant="primary"
             size="md"
-            disabled={credBusy || !credId.trim() || !credSecret.trim()}
-            onClick={() => void saveCredentials()}
+            disabled={tokenBusy || !token.trim()}
+            onClick={() => void connectWithToken()}
           >
-            {credBusy ? "Saving…" : "Save credentials"}
+            {tokenBusy ? "Connecting…" : "Connect"}
           </Button>
         </div>
       </Modal>
@@ -556,14 +508,36 @@ export function AppsView({
           The last {syncDupes?.app ?? "source"} sync found items you already had. They were skipped
           — nothing was overwritten.
         </p>
-        <ul className="mt-3 max-h-56 divide-y divide-line overflow-y-auto rounded-[var(--radius)] bg-canvas/40">
-          {syncDupes?.items.map((item) => (
-            <li key={`${item.url ?? ""}-${item.title}`} className="px-3 py-2">
-              <p className="truncate text-[12px] text-muted">{item.title}</p>
-              <p className="truncate font-mono text-[10px] text-faint">{item.url ?? "note"}</p>
-            </li>
-          ))}
-        </ul>
+        <div className="mt-3 max-h-56 overflow-y-auto rounded-[var(--radius)] bg-canvas/40">
+          <table className="w-full table-fixed text-left">
+            <thead className="sticky top-0 bg-canvas/90 font-mono text-[9px] uppercase tracking-wider text-faint">
+              <tr>
+                <th className="px-3 py-1.5 font-normal">Item</th>
+                <th className="px-3 py-1.5 font-normal">Link</th>
+                <th className="px-3 py-1.5 text-right font-normal">Status</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-line">
+              {syncDupes?.items.map((item) => (
+                <tr key={`${item.url ?? ""}-${item.title}`}>
+                  <td className="max-w-0 px-3 py-2">
+                    <p className="truncate text-[12px] text-text">{item.title}</p>
+                  </td>
+                  <td className="max-w-0 px-3 py-2">
+                    <p className="truncate font-mono text-[10px] text-accent">
+                      {item.url ?? "note"}
+                    </p>
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    <Badge tone="muted" className="bg-amber/10 text-amber">
+                      duplicate
+                    </Badge>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
         {(syncDupes?.count ?? 0) > (syncDupes?.items.length ?? 0) ? (
           <p className="mt-1 font-mono text-[10px] text-faint">
             + {(syncDupes?.count ?? 0) - (syncDupes?.items.length ?? 0)} more

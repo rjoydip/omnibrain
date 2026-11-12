@@ -2,17 +2,16 @@
 
 ## Environment variables
 
-| Variable                    | Required      | Purpose                                                     |
-| --------------------------- | ------------- | ----------------------------------------------------------- |
-| `AUTH_SECRET`               | yes           | OTP pepper + session/signing fallback; 32+ random chars     |
-| `TOKEN_KEY`                 | recommended   | AES-GCM key for connector tokens; defaults to `AUTH_SECRET` |
-| `APP_ORIGIN`                | yes (prod)    | Web origin for CORS, cookies, OAuth redirects               |
-| `NOTION_CLIENT_ID/SECRET`   | optional      | OAuth app; prefer App Store → credentials                   |
-| `X_CLIENT_ID/SECRET`        | optional      | OAuth app; prefer App Store → credentials                   |
-| `RAINDROP_CLIENT_ID/SECRET` | optional      | OAuth app; prefer App Store → credentials                   |
-| `RESEND_KEY`                | yes in prod   | Transactional OTP email; dev never sends                    |
-| `RESEND_FROM`               | recommended   | Verified sender; defaults to Resend onboarding sender       |
-| `DEV_MODE`                  | never in prod | Returns the OTP to the dev UI; dev server sets it           |
+| Variable                  | Required      | Purpose                                                     |
+| ------------------------- | ------------- | ----------------------------------------------------------- |
+| `AUTH_SECRET`             | yes           | OTP pepper + session/signing fallback; 32+ random chars     |
+| `TOKEN_KEY`               | recommended   | AES-GCM key for connector tokens; defaults to `AUTH_SECRET` |
+| `APP_ORIGIN`              | yes (prod)    | Web origin for CORS, cookies, OAuth redirects               |
+| `NOTION_CLIENT_ID/SECRET` | optional      | OAuth app; enables one-click Notion sign-in                 |
+| `GH_CLIENT_ID/SECRET`     | optional      | OAuth app; not needed when using a personal access token    |
+| `EMAIL_FROM`              | recommended   | Verified sender for Cloudflare Email Service                |
+| `EMAIL` (binding)         | yes in prod   | `send_email` binding provisioned by `alchemy.run.ts`        |
+| `DEV_MODE`                | never in prod | Returns the OTP to the dev UI; dev server sets it           |
 
 Generate secrets with `openssl rand -base64 32` or `bun -e 'console.log(crypto.randomUUID())'`
 (repeat/cat for length).
@@ -26,7 +25,8 @@ Generate secrets with `openssl rand -base64 32` or `bun -e 'console.log(crypto.r
    ```
 
 2. Copy `.env.example` to `.env` and fill production values. `AUTH_SECRET` is mandatory;
-   `alchemy.run.ts` refuses to plan without it.
+   `alchemy.run.ts` refuses to plan without it. Verify the `EMAIL_FROM` sender domain/address in
+   Cloudflare Email Service (Email Sending requires the Workers Paid plan).
 3. Deploy:
 
    ```bash
@@ -39,6 +39,8 @@ Generate secrets with `openssl rand -base64 32` or `bun -e 'console.log(crypto.r
 4. Verify:
    - `GET https://<api>/health` returns `{ ok: true }`.
    - Sign in via OTP; `/api/v1/account` returns the demo workspace.
+   - Confirm the OTP email arrives through Cloudflare Email Service and `EMAIL_FROM` is a verified
+     sender. A missing `EMAIL` binding returns `503 email_not_configured`.
    - Capture a URL; confirm `embedding_state` moves from `pending` to `ready` (or `skipped` without
      AI/Vectorize bindings).
    - Confirm the native `VECTORS` binding inserts and queries one test vector. If Alchemy binds the

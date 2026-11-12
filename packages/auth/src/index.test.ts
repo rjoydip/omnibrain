@@ -2,9 +2,11 @@ import { describe, expect, test } from "bun:test";
 import { bootstrapUser } from "@omnibrain/db";
 import { memoryClient } from "@omnibrain/db/sqlite";
 import {
+  canRequestOtp,
   destroySession,
   issueSession,
   MAX_OTP_ATTEMPTS,
+  OTP_RESEND_MS,
   OTP_TTL_MS,
   requestOtp,
   resolveSession,
@@ -55,6 +57,16 @@ describe("otp", () => {
     await verifyOtp(db, "person@example.com", "000000", SECRET);
     const { code } = await requestOtp(db, "person@example.com", SECRET);
     expect((await verifyOtp(db, "person@example.com", code, SECRET)).ok).toBe(true);
+  });
+
+  test("enforces a resend cooldown per address", async () => {
+    const { db } = await setup();
+    const now = 1_700_000_000_000;
+    expect(await canRequestOtp(db, "person@example.com", now)).toBe(true);
+    await requestOtp(db, "person@example.com", SECRET, now);
+    expect(await canRequestOtp(db, "person@example.com", now + OTP_RESEND_MS - 1)).toBe(false);
+    expect(await canRequestOtp(db, "person@example.com", now + OTP_RESEND_MS)).toBe(true);
+    expect(await canRequestOtp(db, "other@example.com", now)).toBe(true);
   });
 });
 

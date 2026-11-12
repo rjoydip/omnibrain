@@ -1,12 +1,14 @@
 import { parseBookmarksHtml } from "@omnibrain/connectors/browser";
-import { parseKeepTakeout } from "@omnibrain/connectors/keep";
 import { canonicalizeUrl } from "@omnibrain/search";
 import { Badge, Button, Modal } from "@omnibrain/ui";
 import { useRef, useState } from "react";
 import { ImportIcon, TrashIcon } from "../components/icons";
 import { ApiError, api } from "../lib/api";
 
-type Kind = "browser" | "keep";
+const IMPORT_KIND = "browser_html";
+const DROP = "bookmarks.html";
+const DROP_HINT = "Browser menu → Bookmarks → Export bookmarks";
+const ACCEPT = ".html,.htm,text/html";
 
 interface Parsed {
   url?: string;
@@ -45,13 +47,10 @@ async function existingKeys(): Promise<Set<string>> {
 export function ImportView({
   toast,
   onChanged,
-  preferred,
 }: {
   toast: (message: string, tone?: "ok" | "error") => void;
   onChanged: () => void;
-  preferred: string | null;
 }) {
-  const [kind, setKind] = useState<Kind>(preferred === "keep" ? "keep" : "browser");
   const [fileName, setFileName] = useState<string | null>(null);
   const [parsed, setParsed] = useState<Parsed[]>([]);
   const [picked, setPicked] = useState<Set<number>>(new Set());
@@ -84,30 +83,17 @@ export function ImportView({
     setShowDuplicates(false);
     try {
       const text = await file.text();
-      const items: Parsed[] =
-        kind === "browser"
-          ? parseBookmarksHtml(text).map((b) => ({
-              url: b.url,
-              title: b.title,
-              tags: b.tags ?? [],
-              captured_at: b.capturedAt,
-              source: "browser",
-              kind: "bookmark" as const,
-            }))
-          : parseKeepTakeout(text).map((n) => ({
-              title: n.title,
-              note: n.note,
-              tags: n.tags ?? [],
-              captured_at: n.capturedAt,
-              source: "keep",
-              kind: "note" as const,
-            }));
+      const items: Parsed[] = parseBookmarksHtml(text).map((i) => ({
+        url: i.url,
+        title: i.title,
+        note: i.note,
+        tags: i.tags ?? [],
+        captured_at: i.capturedAt,
+        source: "browser",
+        kind: i.kind === "note" ? "note" : "bookmark",
+      }));
       if (items.length === 0) {
-        setError(
-          kind === "browser"
-            ? "No bookmarks found. Export an HTML bookmarks file from your browser."
-            : "No Keep notes found. Use the Takeout JSON export.",
-        );
+        setError("No bookmarks found. Export an HTML bookmarks file from your browser.");
         setPhase("error");
         return;
       }
@@ -142,10 +128,7 @@ export function ImportView({
     let duplicates = 0;
     let blocked = 0;
     try {
-      const createdImport = await api.createImport(
-        kind === "browser" ? "browser_html" : "keep_takeout",
-        queue.length,
-      );
+      const createdImport = await api.createImport(IMPORT_KIND, queue.length);
       importId = createdImport.import.id;
 
       for (let i = 0; i < queue.length; i += CHUNK) {
@@ -203,58 +186,14 @@ export function ImportView({
     <div className="mx-auto w-full max-w-3xl space-y-5 p-3 pb-20 md:p-4">
       <header>
         <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-faint">
-          Bring your data
+          On-device import
         </p>
-        <h1 className="mt-1 text-xl font-semibold tracking-[-0.02em]">Import</h1>
+        <h1 className="mt-1 text-xl font-semibold tracking-[-0.02em]">Import bookmarks</h1>
         <p className="mt-1 max-w-xl text-xs leading-relaxed text-muted">
-          Files are parsed in this tab. Only the extracted titles, links and notes are sent to the
-          server. Re-importing is safe: items are deduped by canonical URL.
+          Chrome, Edge, Firefox and Safari exports. Files are parsed in this tab; only the extracted
+          titles, links and tags are sent to the server. Re-importing is safe.
         </p>
       </header>
-
-      <div className="grid gap-2 sm:grid-cols-2">
-        {(
-          [
-            {
-              id: "browser" as const,
-              title: "Browser bookmarks",
-              body: "Chrome, Edge, Firefox, Safari · bookmarks.html",
-              hint: "HTML export",
-            },
-            {
-              id: "keep" as const,
-              title: "Google Keep",
-              body: "Takeout JSON export · one-way import",
-              hint: "Takeout",
-            },
-          ] as const
-        ).map((option) => (
-          <button
-            key={option.id}
-            type="button"
-            onClick={() => {
-              setKind(option.id);
-              setParsed([]);
-              setPicked(new Set());
-              setFileName(null);
-              setResult(null);
-              setPhase("idle");
-              setError(null);
-            }}
-            className={`rounded-[var(--radius)] border p-3 text-left transition ${
-              kind === option.id
-                ? "border-line-strong bg-panel"
-                : "border-line bg-panel/40 hover:bg-panel"
-            }`}
-          >
-            <div className="flex items-center justify-between">
-              <span className="text-[13px] font-medium">{option.title}</span>
-              <Badge tone={kind === option.id ? "signal" : "muted"}>{option.hint}</Badge>
-            </div>
-            <p className="mt-1 text-[11px] text-muted">{option.body}</p>
-          </button>
-        ))}
-      </div>
 
       {phase === "parsing" ? (
         <p className="text-xs text-faint">Parsing…</p>
@@ -278,25 +217,19 @@ export function ImportView({
           <div className="mx-auto grid size-10 place-items-center rounded-full border border-line bg-raised text-muted">
             <ImportIcon size={17} />
           </div>
-          <p className="mt-3 text-[13px] text-text">
-            Drop {kind === "browser" ? "bookmarks.html" : "Takeout JSON"} here
-          </p>
-          <p className="mt-1 text-[11px] text-faint">
-            {kind === "browser"
-              ? "Browser menu → Bookmarks → Export bookmarks"
-              : "Takeout → Keep → export JSON (not HTML)"}
-          </p>
+          <p className="mt-3 text-[13px] text-text">Drop {DROP} here</p>
+          <p className="mt-1 text-[11px] text-faint">{DROP_HINT}</p>
           <button
             type="button"
             onClick={() => inputRef.current?.click()}
-            className="mt-3 rounded-[var(--radius)] px-3 py-1.5 text-xs text-text hover:bg-raised"
+            className="mt-3 rounded-[var(--radius)] bg-cobalt px-3 py-1.5 text-xs font-medium text-signal-ink hover:brightness-105"
           >
             Choose file
           </button>
           <input
             ref={inputRef}
             type="file"
-            accept={kind === "browser" ? ".html,.htm,text/html" : ".json,application/json"}
+            accept={ACCEPT}
             className="hidden"
             onChange={(e) => {
               const file = e.target.files?.[0];
@@ -327,7 +260,7 @@ export function ImportView({
                 {fileName ?? "File"} · {parsed.length.toLocaleString()} items
               </p>
               <p className="mt-0.5 font-mono text-[10px] text-faint">
-                {kind === "browser" ? "bookmarks" : "notes"} · preview
+                bookmarks · preview
                 {duplicateCount > 0 ? (
                   <>
                     {" · "}
@@ -359,6 +292,7 @@ export function ImportView({
                 type="button"
                 variant="primary"
                 size="sm"
+                className="bg-cobalt"
                 onClick={() => void start()}
                 disabled={phase === "importing" || fresh.length === 0}
               >
@@ -445,16 +379,36 @@ export function ImportView({
           These items already exist in this workspace. Nothing is overwritten — duplicates are
           skipped and only new items are imported.
         </p>
-        <ul className="mt-3 max-h-56 divide-y divide-line overflow-y-auto rounded-[var(--radius)] bg-canvas/40">
-          {duplicateItems.slice(0, 50).map((item) => (
-            <li key={itemKey(item)} className="px-3 py-2">
-              <p className="truncate text-[12px] text-muted">{item.title}</p>
-              <p className="truncate font-mono text-[10px] text-faint">
-                {item.url ?? item.note?.slice(0, 80) ?? "note"}
-              </p>
-            </li>
-          ))}
-        </ul>
+        <div className="mt-3 max-h-56 overflow-y-auto rounded-[var(--radius)] bg-canvas/40">
+          <table className="w-full table-fixed text-left">
+            <thead className="sticky top-0 bg-canvas/90 font-mono text-[9px] uppercase tracking-wider text-faint">
+              <tr>
+                <th className="px-3 py-1.5 font-normal">Item</th>
+                <th className="px-3 py-1.5 font-normal">Link</th>
+                <th className="px-3 py-1.5 text-right font-normal">Status</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-line">
+              {duplicateItems.slice(0, 50).map((item) => (
+                <tr key={itemKey(item)}>
+                  <td className="max-w-0 px-3 py-2">
+                    <p className="truncate text-[12px] text-text">{item.title}</p>
+                  </td>
+                  <td className="max-w-0 px-3 py-2">
+                    <p className="truncate font-mono text-[10px] text-accent">
+                      {item.url ?? item.note?.slice(0, 80) ?? "note"}
+                    </p>
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    <Badge tone="muted" className="bg-amber/10 text-amber">
+                      duplicate
+                    </Badge>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
         {duplicateItems.length > 50 ? (
           <p className="mt-1 font-mono text-[10px] text-faint">
             + {duplicateItems.length - 50} more
@@ -468,6 +422,7 @@ export function ImportView({
             type="button"
             variant="primary"
             size="md"
+            className="bg-cobalt"
             disabled={fresh.length === 0}
             onClick={() => {
               setShowDuplicates(false);

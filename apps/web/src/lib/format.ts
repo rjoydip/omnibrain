@@ -5,9 +5,9 @@ export const SOURCE_META: Record<
   web: { label: "Web", glyph: "◍", tone: "cobalt" },
   browser: { label: "Bookmarks", glyph: "B", tone: "amber" },
   notion: { label: "Notion", glyph: "N", tone: "cobalt" },
-  keep: { label: "Keep", glyph: "K", tone: "amber" },
   x: { label: "X", glyph: "X", tone: "coral" },
   raindrop: { label: "Raindrop", glyph: "R", tone: "mint" },
+  github: { label: "Gist", glyph: "GH", tone: "muted" },
   readwise: { label: "Readwise", glyph: "◈", tone: "cobalt" },
   obsidian: { label: "Obsidian", glyph: "◆", tone: "muted" },
   mcp: { label: "MCP", glyph: "M", tone: "mint" },
@@ -83,9 +83,9 @@ export const ACCENT_SWATCHES: Record<string, string> = {
   cobalt: "var(--a-cobalt)",
   amber: "var(--a-amber)",
   mint: "var(--a-mint)",
-  coral: "var(--a-coral)",
+  rose: "var(--a-rose)",
   violet: "var(--a-violet)",
-  slate: "var(--a-slate)",
+  cyan: "var(--a-cyan)",
 };
 
 export function relativeTime(ts: number | null): string {
