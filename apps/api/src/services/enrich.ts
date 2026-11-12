@@ -1,4 +1,5 @@
 import { type AiBinding, chunkText, embedTexts, summarize } from "@omnibrain/ai";
+import { cleanGeneratedTags } from "@omnibrain/core";
 import { forWorkspace, type ItemRow } from "@omnibrain/db";
 import { dbOf, type Env } from "../env";
 import { refreshItemEdges } from "./graph";
@@ -139,6 +140,23 @@ export async function fetchReadable(
   return null;
 }
 
+/** No Workers AI bound: first sentences of the text, markdown stripped. */
+export function fallbackSummary(text: string): string {
+  const plain = text
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/^\s{0,3}#{1,6}\s+.*$/gm, " ")
+    .replace(/^\s{0,3}(?:>|[-*+]|\d{1,9}[.)])\s+(?:\[[ xX]\]\s+)?/gm, "")
+    .replace(/!?\[[^\]]*\]\([^)]*\)/g, " ")
+    .replace(/[*_~`]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const sentences = plain
+    .split(/(?<=[.!?])\s+/)
+    .slice(0, 2)
+    .join(" ");
+  return (sentences || plain).slice(0, 240);
+}
+
 export interface EnrichResult {
   ok: boolean;
   reason?: string;
@@ -155,22 +173,34 @@ export async function enrichItem(
   const item = await repo.getItem(itemId);
   if (!item) return { ok: false, reason: "missing" };
   if (!item.url) {
-    await repo.updateItem(itemId, { embeddingState: "skipped" });
+    await repo.updateItem(itemId, {
+      embeddingState: "skipped",
+      enrichError: null,
+      enrichStartedAt: null,
+    });
     return { ok: true };
   }
 
+  // Marks the item as in-flight so the queue dialog can show progress.
+  await repo.updateItem(itemId, { enrichStartedAt: Date.now() }).catch(() => {});
+
   try {
-    const page = await fetchReadable(item.url);
-    if (!page) {
-      await repo.updateItem(itemId, { embeddingState: "failed" });
+    // Connector items (Notion pages, gists) already carry their text; refetching
+    // the provider URL only hits a login wall.
+    const known = item.connection_id ? (item.excerpt ?? "") : "";
+    const page = known.length > 200 ? null : await fetchReadable(item.url);
+    if (!page && known.length <= 200) {
+      await repo.updateItem(itemId, {
+        embeddingState: "failed",
+        enrichError: "Could not fetch a readable page",
+        enrichStartedAt: null,
+      });
       return { ok: false, reason: "fetch" };
     }
-    const text = page.text.length > 200 ? page.text : (item.excerpt ?? item.title);
+    const text = page && page.text.length > 200 ? page.text : known || item.excerpt || item.title;
 
     const ai = env.AI as unknown as AiBinding | undefined;
-    const summary = ai
-      ? await summarize(ai, text)
-      : { summary: text.slice(0, 240).replace(/\s+/g, " "), tags: [] as string[] };
+    const summary = ai ? await summarize(ai, text) : { summary: fallbackSummary(text), tags: [] };
 
     let contentR2Key: string | undefined;
     if (env.BLOBS) {
@@ -208,17 +238,23 @@ export async function enrichItem(
       embeddingState = "ready";
     }
 
+    const tags = cleanGeneratedTags(summary.tags);
     await repo.updateItem(itemId, {
       summary: summary.summary,
-      excerpt: text.slice(0, 2000),
-      tags: summary.tags.length ? summary.tags : undefined,
+      excerpt: page ? text.slice(0, 2000) : (item.excerpt ?? undefined),
+      tags: tags.length ? tags : undefined,
       contentR2Key,
       embeddingState,
+      enrichError: null,
+      enrichStartedAt: null,
     });
     await refreshItemEdges(env, workspaceId, itemId).catch(() => undefined);
     return { ok: true };
   } catch (error) {
-    await repo.updateItem(itemId, { embeddingState: "failed" }).catch(() => {});
+    const message = (error instanceof Error ? error.message : String(error)).slice(0, 300);
+    await repo
+      .updateItem(itemId, { embeddingState: "failed", enrichError: message, enrichStartedAt: null })
+      .catch(() => {});
     console.error("enrich failed", { itemId, error: String(error) });
     throw error;
   }

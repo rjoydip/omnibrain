@@ -43,6 +43,8 @@ export interface ItemRow {
   content_hash: string;
   tags_text: string;
   embedding_state: "pending" | "ready" | "failed" | "skipped";
+  enrich_error: string | null;
+  enrich_started_at: number | null;
   archived_at: number | null;
   graph_refreshed_at: number | null;
   deleted_at: number | null;

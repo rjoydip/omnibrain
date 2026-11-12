@@ -17,6 +17,7 @@ import {
 import { mcpRoutes } from "./mcp";
 import { accountRoutes } from "./routes/account";
 import { appRoutes, oauthCallbackRoutes } from "./routes/apps";
+import { publicRoutes } from "./routes/public";
 import { authRoutes } from "./routes/auth";
 import { importRoutes } from "./routes/imports";
 import { itemRoutes } from "./routes/items";
@@ -88,6 +89,7 @@ export function createApp() {
 
   app.route("/api/v1/auth", authRoutes);
   app.route("/api/v1/oauth", oauthCallbackRoutes);
+  app.route("/api/v1/public", publicRoutes);
   app.route("/mcp", mcpRoutes);
 
   const api = new Hono<AppEnv>();

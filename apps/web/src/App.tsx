@@ -18,7 +18,15 @@ import { Inspector } from "./views/Inspector";
 import { Knowledge } from "./views/Knowledge";
 import { SettingsView } from "./views/Settings";
 
+/** A reader tab only renders one item; shell polling and URL sync stay off. */
+const READER_ID = new URLSearchParams(window.location.search).get("reader");
+const SHARE_TOKEN = new URLSearchParams(window.location.search).get("share");
+
 const AppsView = lazy(() => import("./views/Apps").then((m) => ({ default: m.AppsView })));
+const Reader = lazy(() => import("./views/Reader").then((m) => ({ default: m.Reader })));
+const SharedReader = lazy(() =>
+  import("./views/Reader").then((m) => ({ default: m.SharedReader })),
+);
 const ImportView = lazy(() => import("./views/Import").then((m) => ({ default: m.ImportView })));
 const McpView = lazy(() => import("./views/Mcp").then((m) => ({ default: m.McpView })));
 const NoteCapture = lazy(() =>
@@ -91,6 +99,14 @@ export default function App() {
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [account, setAccount] = useState<Account | null>(null);
+  const [queueOpen, setQueueOpen] = useState(false);
+  const [queueLists, setQueueLists] = useState<{
+    running: Item[];
+    queued: Item[];
+    done: Item[];
+    failed: Item[];
+    skipped: Item[];
+  }>({ running: [], queued: [], done: [], failed: [], skipped: [] });
 
   const [view, setView] = useState<View>(initialView);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -154,6 +170,7 @@ export default function App() {
 
   // The URL is the shareable source of truth for view/filters; history keeps back/forward working.
   useEffect(() => {
+    if (READER_ID) return;
     const params = new URLSearchParams();
     if (view !== "knowledge") params.set("view", view);
     if (itemStatus !== "active") params.set("status", itemStatus);
@@ -230,6 +247,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (SHARE_TOKEN) return;
     void bootMe();
   }, [bootMe]);
 
@@ -277,7 +295,7 @@ export default function App() {
   }, [itemStatus]);
 
   useEffect(() => {
-    if (!me) return;
+    if (!me || READER_ID) return;
     void refresh().catch((err) => {
       if (isAbort(err)) return;
       if (err instanceof ApiError && err.status === 401) {
@@ -287,6 +305,58 @@ export default function App() {
       }
     });
   }, [me, refresh, toast]);
+
+  const loadQueue = useCallback(async () => {
+    try {
+      const res = await api.queue();
+      setQueueLists(res.items);
+      setAccount((prev) => (prev ? { ...prev, queue: res.counts } : prev));
+    } catch {
+      // The dialog falls back to its empty states if the request fails.
+    }
+  }, []);
+
+  const runQueue = useCallback(async () => {
+    try {
+      const res = await api.runQueue();
+      toast(
+        res.started > 0
+          ? `Enriching ${res.started} item${res.started === 1 ? "" : "s"}…`
+          : "Nothing left to enrich.",
+        "ok",
+      );
+      await loadQueue();
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : "Could not start the queue", "error");
+    }
+  }, [loadQueue, toast]);
+
+  const requeueItem = useCallback(
+    async (id: string) => {
+      try {
+        await api.retryItem(id);
+        await loadQueue();
+        await refresh();
+      } catch (err) {
+        toast(err instanceof ApiError ? err.message : "Could not re-queue that item", "error");
+      }
+    },
+    [loadQueue, refresh, toast],
+  );
+
+  // Live queue: fast while the dialog is open, slow only while work is waiting.
+  const pendingQueue = account?.queue.pending ?? 0;
+  useEffect(() => {
+    if (!me || READER_ID) return;
+    if (!queueOpen && pendingQueue === 0) return;
+    const timer = setInterval(
+      () => {
+        if (document.visibilityState === "visible") void loadQueue();
+      },
+      queueOpen ? 2000 : 8000,
+    );
+    return () => clearInterval(timer);
+  }, [me, queueOpen, pendingQueue, loadQueue]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -407,18 +477,22 @@ export default function App() {
 
   const retryItem = useCallback(
     async (id: string) => {
+      const current = items.find((item) => item.id === id);
       setItems((prev) =>
         prev.map((item) => (item.id === id ? { ...item, embedding_state: "pending" } : item)),
       );
       try {
         await api.retryItem(id);
-        toast("Re-enrichment queued.");
+        toast(
+          current?.embedding_state === "ready" ? "Re-enrichment queued." : "Enrichment queued.",
+        );
+        await loadQueue();
       } catch (err) {
         void refresh().catch(() => undefined);
         toast(err instanceof ApiError ? err.message : "Retry failed", "error");
       }
     },
-    [refresh, toast],
+    [items, loadQueue, refresh, toast],
   );
 
   const archiveItem = useCallback((id: string) => void setArchived(id, true), [setArchived]);
@@ -456,8 +530,24 @@ export default function App() {
     setNoteOpen(false);
   }, []);
 
+  if (SHARE_TOKEN) {
+    return (
+      <Suspense fallback={<SectionLoading label="Opening shared note" />}>
+        <SharedReader token={SHARE_TOKEN} />
+      </Suspense>
+    );
+  }
+
   if (boot !== "ready") {
     return <BootSplash error={boot === "error" ? bootError : null} onRetry={() => void bootMe()} />;
+  }
+
+  if (READER_ID && me) {
+    return (
+      <Suspense fallback={<SectionLoading label="Opening reader" />}>
+        <Reader itemId={READER_ID} />
+      </Suspense>
+    );
   }
 
   if (!me) {
@@ -491,6 +581,14 @@ export default function App() {
         status={itemStatus}
         sources={sources}
         source={sourceFilter}
+        queue={account?.queue}
+        queueLists={queueLists}
+        onRunQueue={() => void runQueue()}
+        queueOpen={queueOpen}
+        onQueueOpenChange={setQueueOpen}
+        onRequeueItem={(id) => void requeueItem(id)}
+        onLoadQueue={() => void loadQueue()}
+        onOpenItem={(id) => void openItem(id)}
         onNavigate={navigate}
         onStatus={(next) => {
           setSelectedId(null);

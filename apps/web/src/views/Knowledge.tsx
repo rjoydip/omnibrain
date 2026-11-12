@@ -7,6 +7,8 @@ import {
   MenuTrigger,
   Tooltip,
 } from "@omnibrain/ui";
+import { isMarkdown } from "@omnibrain/core/markdown";
+import { cleanGeneratedTags } from "@omnibrain/core/tags";
 import { lazy, memo, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Atlas, type AtlasFilter } from "../components/Atlas";
 import { SourceGlyph } from "../components/SourceGlyph";
@@ -28,8 +30,20 @@ import type { ItemLayout, ItemStatus, Theme } from "../lib/nav";
 
 const DAY = 86_400_000;
 
+/** One-line rows can't render blocks, so drop the syntax instead. */
+function stripMarkers(text: string): string {
+  return text
+    .replace(/^\s{0,3}(?:#{1,6}|>|[-*+]|\d{1,9}[.)])\s+(?:\[[ xX]\]\s+)?/gm, "")
+    .replace(/[*_~`]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 const ItemGraph = lazy(() =>
   import("../components/ItemGraph").then((m) => ({ default: m.ItemGraph })),
+);
+const Markdown = lazy(() =>
+  import("../components/Markdown").then((m) => ({ default: m.Markdown })),
 );
 
 function KnowledgeItemBase({
@@ -57,9 +71,8 @@ function KnowledgeItemBase({
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const meta = sourceMeta(item.source);
-  // Gists are code: the row stays title-only; the Inspector shows the content.
-  const excerpt =
-    item.source === "github" ? "" : (item.summary ?? item.excerpt ?? "No text extracted yet.");
+  // The original note, rendered when it is markdown; the summary lives in the Inspector.
+  const note = item.excerpt ?? "";
 
   const menu = useMemo(
     () => (
@@ -122,7 +135,7 @@ function KnowledgeItemBase({
 
   const labels = useMemo(() => {
     if (item.source === "github") return null;
-    const tags = item.tags_text.split(" ").filter(Boolean).slice(0, 3);
+    const tags = cleanGeneratedTags(item.tags_text.split(" ")).slice(0, 3);
     return (
       <div className="mt-1 flex flex-wrap items-center gap-1.5">
         {tags.length > 0 ? <span className="font-mono text-[10px] text-faint">Tags:</span> : null}
@@ -173,8 +186,20 @@ function KnowledgeItemBase({
           <span className="mt-2 line-clamp-2 text-[13.5px] font-medium text-text">
             {item.title}
           </span>
-          {excerpt ? (
-            <p className="mt-1 line-clamp-3 text-[11.5px] leading-relaxed text-muted">{excerpt}</p>
+          {note ? (
+            isMarkdown(note) ? (
+              <div className="mt-1 max-h-[3.6rem]">
+                <Suspense
+                  fallback={
+                    <p className="line-clamp-3 text-[11.5px] leading-relaxed text-muted">{note}</p>
+                  }
+                >
+                  <Markdown compact text={note.slice(0, 600)} />
+                </Suspense>
+              </div>
+            ) : (
+              <p className="mt-1 line-clamp-3 text-[11.5px] leading-relaxed text-muted">{note}</p>
+            )
           ) : null}
           {labels}
         </button>
@@ -212,9 +237,9 @@ function KnowledgeItemBase({
               {timeLabel(item.captured_at)}
             </span>
           </div>
-          {excerpt ? (
+          {note ? (
             <p className="mt-0.5 line-clamp-1 text-[11.5px] leading-relaxed text-muted">
-              {excerpt}
+              {stripMarkers(note)}
             </p>
           ) : null}
           {labels}

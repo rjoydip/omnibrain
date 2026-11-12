@@ -399,6 +399,69 @@ describe("api", () => {
     expect(againBody.duplicates).toBe(2);
   });
 
+  test("a public share link exposes the item until it is revoked", async () => {
+    const { app, env } = harness();
+    const cookie = await login(app, env);
+
+    const created = await app.request(
+      "/api/v1/items",
+      {
+        method: "POST",
+        headers: json(cookie),
+        body: JSON.stringify({ title: "Shared note", note: "Hello there" }),
+      },
+      env,
+    );
+    const { item } = (await created.json()) as { item: { id: string } };
+
+    const share = await app.request(
+      `/api/v1/items/${item.id}/share`,
+      { method: "POST", headers: json(cookie), body: JSON.stringify({ recipients: [] }) },
+      env,
+    );
+    expect(share.status).toBe(200);
+    const { token } = (await share.json()) as { token: string };
+    expect(token.length).toBeGreaterThan(10);
+
+    // No session, no CSRF: the token is the credential.
+    const publicRead = await app.request(`/api/v1/public/items/${token}`, {}, env);
+    expect(publicRead.status).toBe(200);
+    const shared = (await publicRead.json()) as { item: Record<string, unknown> };
+    expect(shared.item.title).toBe("Shared note");
+    expect(shared.item.excerpt).toBe("Hello there");
+    expect(shared.item.workspace_id).toBeUndefined();
+
+    await app.request(
+      `/api/v1/items/${item.id}/share`,
+      { method: "DELETE", headers: json(cookie) },
+      env,
+    );
+    expect((await app.request(`/api/v1/public/items/${token}`, {}, env)).status).toBe(404);
+  });
+
+  test("queue run only starts items that have a url", async () => {
+    const { app, env } = harness();
+    const cookie = await login(app, env);
+
+    await app.request(
+      "/api/v1/items",
+      {
+        method: "POST",
+        headers: json(cookie),
+        body: JSON.stringify({ title: "Note only", note: "body" }),
+      },
+      env,
+    );
+
+    const res = await app.request(
+      "/api/v1/items/queue/run",
+      { method: "POST", headers: json(cookie) },
+      env,
+    );
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { started: number }).started).toBe(0);
+  });
+
   test("app catalog reports configuration honestly", async () => {
     const { app, env } = harness();
     const cookie = await login(app, env);

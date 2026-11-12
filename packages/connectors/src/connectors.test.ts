@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { parseBookmarksHtml } from "./browser";
 import { listGithubGists } from "./github";
+import { listNotionPages } from "./notion";
 import { APP_CATALOG, getApp, syncApp } from "./registry";
 
 const SAMPLE = `<!DOCTYPE NETSCAPE-Bookmark-file-1>
@@ -37,6 +38,61 @@ describe("browser bookmarks parser", () => {
 
   test("empty input is safe", () => {
     expect(parseBookmarksHtml("")).toEqual([]);
+  });
+});
+
+describe("notion adapter", () => {
+  test("extracts page text from blocks, maps to a note and pages by cursor", async () => {
+    const seen: string[] = [];
+    const fetchImpl = (async (input: Parameters<typeof fetch>[0]) => {
+      const url = String(input);
+      seen.push(url);
+      if (url === "https://api.notion.com/v1/search") {
+        return new Response(
+          JSON.stringify({
+            results: [
+              {
+                id: "p1",
+                url: "https://www.notion.so/Page-1",
+                last_edited_time: "2024-01-01T00:00:00.000Z",
+                properties: { Name: { type: "title", title: [{ plain_text: "Page 1" }] } },
+              },
+            ],
+            has_more: true,
+            next_cursor: "c2",
+          }),
+        );
+      }
+      if (url.startsWith("https://api.notion.com/v1/blocks/p1/children")) {
+        return new Response(
+          JSON.stringify({
+            results: [
+              { type: "heading_1", heading_1: { rich_text: [{ plain_text: "Title" }] } },
+              { type: "paragraph", paragraph: { rich_text: [{ plain_text: "Body" }] } },
+              {
+                type: "code",
+                code: { language: "ts", rich_text: [{ plain_text: "const x = 1" }] },
+              },
+              { type: "divider" },
+            ],
+            has_more: false,
+          }),
+        );
+      }
+      return new Response("unexpected", { status: 500 });
+    }) as typeof fetch;
+
+    const res = await listNotionPages({ token: "t", fetchImpl });
+    expect(res.items).toHaveLength(1);
+    expect(res.items[0]).toMatchObject({
+      externalId: "p1",
+      kind: "note",
+      title: "Page 1",
+      lang: "markdown",
+    });
+    expect(res.items[0]?.note).toBe("# Title\n\nBody\n\n```ts\nconst x = 1\n```");
+    expect(res.nextCursor).toBe("c2");
+    expect(seen.some((url) => url.includes("/blocks/p1/children"))).toBe(true);
   });
 });
 

@@ -100,6 +100,24 @@ export const ArrowUpRightIcon = (p: IconProps) => (
   </Icon>
 );
 
+export const UsersIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M16 20v-1.5a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4V20M9 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7M22 20v-1.5a4 4 0 0 0-3-3.87M16 4a3.5 3.5 0 0 1 0 7" />
+  </Icon>
+);
+
+export const ShareIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M12 3v12M12 3l-4 4M12 3l4 4M5 14v5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-5" />
+  </Icon>
+);
+
+export const NewTabIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M14 4h6v6M20 4l-8 8M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" />
+  </Icon>
+);
+
 export const CloseIcon = (p: IconProps) => (
   <Icon {...p}>
     <path d="M6 6l12 12M18 6L6 18" />

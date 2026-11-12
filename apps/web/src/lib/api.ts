@@ -76,11 +76,36 @@ export interface Item {
   captured_at: number;
   tags_text: string;
   embedding_state: "pending" | "ready" | "failed" | "skipped";
+  enrich_error: string | null;
+  enrich_started_at: number | null;
   archived_at: number | null;
   graph_refreshed_at: number | null;
   deleted_at: number | null;
   created_at: number;
   updated_at: number;
+}
+
+export interface SharePerson {
+  id: string;
+  email: string;
+  name: string | null;
+}
+
+export interface ItemShare {
+  token: string;
+  audience: "public" | "users";
+  recipients: SharePerson[];
+}
+
+/** Fields exposed by a public share link. */
+export interface SharedItem {
+  id: string;
+  title: string;
+  url: string | null;
+  source: string;
+  excerpt: string | null;
+  summary: string | null;
+  captured_at: number;
 }
 
 export interface SearchHit extends Item {
@@ -149,6 +174,14 @@ export interface Account {
     api_keys: number;
     mcp_calls_day: number;
     enrichments_month: number;
+  };
+  queue: {
+    pending: number;
+    running: number;
+    ready: number;
+    failed: number;
+    skipped: number;
+    total: number;
   };
   entitlements: Record<string, QuotaBucket>;
 }
@@ -236,6 +269,7 @@ export const api = {
       kind?: string;
       cursor?: string;
       status?: ItemStatus;
+      embedding?: "pending" | "ready" | "failed" | "skipped";
     } = {},
     signal?: AbortSignal,
   ) => {
@@ -246,6 +280,18 @@ export const api = {
     });
   },
   item: (id: string) => request<{ item: Item }>(`/items/${id}`),
+  queue: () =>
+    request<{
+      counts: Account["queue"];
+      items: {
+        running: Item[];
+        queued: Item[];
+        done: Item[];
+        failed: Item[];
+        skipped: Item[];
+      };
+    }>("/items/queue"),
+  runQueue: () => request<{ started: number }>("/items/queue/run", { method: "POST" }),
   related: (id: string, limit = 6) =>
     request<{ items: RelatedItem[] }>(`/items/${id}/related?limit=${limit}`),
   createItem: (input: {
@@ -265,6 +311,19 @@ export const api = {
   purgeItem: (id: string) =>
     request<{ ok: boolean }>(`/items/${id}/permanent`, { method: "DELETE" }),
   retryItem: (id: string) => request<{ ok: boolean }>(`/items/${id}/retry`, { method: "POST" }),
+  itemShare: (id: string) =>
+    request<{ share: ItemShare | null; enabled: boolean }>(`/items/${id}/share`),
+  shareItem: (id: string, recipients: string[] = []) =>
+    request<{ token: string; share: ItemShare | null; enabled: boolean }>(`/items/${id}/share`, {
+      method: "POST",
+      body: { recipients },
+    }),
+  people: (q: string) =>
+    request<{ people: SharePerson[] }>(`/account/people?q=${encodeURIComponent(q)}`),
+  unshareItem: (id: string) =>
+    request<{ enabled: boolean }>(`/items/${id}/share`, { method: "DELETE" }),
+  sharedItem: (token: string) =>
+    request<{ item: SharedItem }>(`/public/items/${encodeURIComponent(token)}`),
 
   search: (input: {
     query: string;

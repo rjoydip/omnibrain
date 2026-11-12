@@ -1,23 +1,27 @@
-import { Badge, Button, Tooltip } from "@omnibrain/ui";
+import { Badge, Button, Modal, Tooltip } from "@omnibrain/ui";
 import { isMarkdown } from "@omnibrain/core/markdown";
+import { cleanGeneratedTags } from "@omnibrain/core/tags";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ArrowUpRightIcon,
   CheckIcon,
   CloseIcon,
   CodeIcon,
   CopyIcon,
   DownloadIcon,
   EyeIcon,
+  GlobeIcon,
+  NewTabIcon,
   RefreshIcon,
   RestoreIcon,
+  ShareIcon,
   SparkIcon,
+  UsersIcon,
   TrashIcon,
   WrapIcon,
 } from "../components/icons";
 import { NoteText } from "../components/NoteText";
 import { SourceGlyph } from "../components/SourceGlyph";
-import { api, type Item, type RelatedItem } from "../lib/api";
+import { ApiError, api, type Item, type RelatedItem, type SharePerson } from "../lib/api";
 import { dayLabel, sourceMeta, timeLabel } from "../lib/format";
 
 const Markdown = lazy(() =>
@@ -173,14 +177,58 @@ function parseLegacyFileSections(
   return out;
 }
 
+/** Reader opens in its own tab, styled by the app shell. */
+function openReader(item: Item) {
+  window.open(
+    `${window.location.pathname}?reader=${encodeURIComponent(item.id)}`,
+    "_blank",
+    "noopener",
+  );
+}
+
+function ShareLinkField({
+  url,
+  copied,
+  onCopy,
+}: {
+  url: string;
+  copied: boolean;
+  onCopy: () => void;
+}) {
+  return (
+    <div className="relative">
+      <code className="block truncate rounded-[6px] bg-raised py-2 pr-9 pl-2.5 font-mono text-[11px] text-muted">
+        {url}
+      </code>
+      <Tooltip label={copied ? "Copied" : "Copy link"}>
+        <button
+          type="button"
+          onClick={onCopy}
+          aria-label="Copy share link"
+          className="absolute top-1/2 right-1 grid size-7 -translate-y-1/2 place-items-center rounded text-faint transition hover:bg-panel hover:text-text"
+        >
+          {copied ? <CheckIcon size={12} /> : <CopyIcon size={12} />}
+        </button>
+      </Tooltip>
+    </div>
+  );
+}
+
 function Provenance({ item }: { item: Item }) {
+  const summary = item.summary ?? "";
   return (
     <div className="rounded-[var(--radius)] bg-raised p-3">
       <div className="mb-1.5 flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-accent">
         <SparkIcon size={12} />
         AI summary · generated
       </div>
-      <p className="text-[12.5px] leading-relaxed text-text/90">{item.summary}</p>
+      {isMarkdown(summary) ? (
+        <Suspense fallback={<NoteText text={summary} className="text-[12.5px]" />}>
+          <Markdown text={summary} className="text-[12.5px] leading-relaxed" />
+        </Suspense>
+      ) : (
+        <p className="text-[12.5px] leading-relaxed text-text/90">{summary}</p>
+      )}
       <p className="mt-2 font-mono text-[10px] text-faint">
         from extracted page text · not the author&apos;s words
       </p>
@@ -214,6 +262,17 @@ export function Inspector({
   const [rawFor, setRawFor] = useState<string | null>(null);
   const [wrapText, setWrapText] = useState(true);
   const [copied, setCopied] = useState<string | null>(null);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shareTab, setShareTab] = useState<"public" | "private">("public");
+  const [shareToken, setShareToken] = useState<string | null>(null);
+  const [shareAudience, setShareAudience] = useState<"public" | "users" | null>(null);
+  const [recipients, setRecipients] = useState<SharePerson[]>([]);
+  const [peopleQuery, setPeopleQuery] = useState("");
+  const [people, setPeople] = useState<SharePerson[]>([]);
+  const [peopleBusy, setPeopleBusy] = useState(false);
+  const [shareBusy, setShareBusy] = useState(false);
+  const [shareCopied, setShareCopied] = useState(false);
+  const [shareError, setShareError] = useState<string | null>(null);
   const [fileIndex, setFileIndex] = useState(0);
   const dragRef = useRef<{ x: number; width: number } | null>(null);
   const [related, setRelated] = useState<RelatedItem[]>([]);
@@ -278,12 +337,10 @@ export function Inspector({
         ? item.lang === "markdown"
         : isMarkdown(item.excerpt)
       : false;
-  // Older gist items imported as bookmarks: still detect markdown, otherwise
-  // NoteText highlights code by content type.
+  // Connector items imported before their adapter carried text (e.g. Notion
+  // pages, older gists) still markdown-render when the content looks like it.
   const extractedMarkdown =
-    item && item.kind !== "note" && item.source === "github" && item.excerpt
-      ? isMarkdown(item.excerpt)
-      : false;
+    item && item.kind !== "note" && item.excerpt ? isMarkdown(item.excerpt) : false;
 
   const activeMarkdown = activeFile
     ? activeFile.lang
@@ -292,6 +349,15 @@ export function Inspector({
     : noteIsMarkdown || extractedMarkdown;
 
   const codeView = Boolean(content) && !activeMarkdown;
+
+  // "Enrich" the first time, "Re-enrich" once text or a summary exists.
+  const enriched =
+    item?.embedding_state === "ready" ||
+    item?.embedding_state === "failed" ||
+    Boolean(item?.summary);
+
+  // Type/source words ("bookmark", "notion") are not topics; older rows still carry them.
+  const tagList = item ? cleanGeneratedTags(item.tags_text?.split(" ") ?? []) : [];
 
   const downloadExcerpt = () => {
     if (!item || !content) return;
@@ -348,6 +414,106 @@ export function Inspector({
       // Clipboard can be unavailable outside a secure context.
     }
   };
+
+  const shareUrl = (token: string) =>
+    `${window.location.origin}${window.location.pathname}?share=${encodeURIComponent(token)}`;
+
+  const openShare = async () => {
+    if (!item) return;
+    setShareOpen(true);
+    setShareTab("public");
+    setShareError(null);
+    setShareCopied(false);
+    setShareToken(null);
+    setShareAudience(null);
+    setRecipients([]);
+    setPeopleQuery("");
+    setPeople([]);
+    try {
+      const res = await api.itemShare(item.id);
+      setShareToken(res.share?.token ?? null);
+      setShareAudience(res.share?.audience ?? null);
+      setRecipients(res.share?.recipients ?? []);
+      if (res.share?.audience === "users") setShareTab("private");
+    } catch {
+      // A fresh item simply has no link yet.
+    }
+  };
+
+  const copyShareLink = async (token: string) => {
+    try {
+      await navigator.clipboard.writeText(shareUrl(token));
+      setShareCopied(true);
+      setTimeout(() => setShareCopied(false), 1500);
+    } catch {
+      setShareError("Clipboard is unavailable in this context.");
+    }
+  };
+
+  const createShare = async (audience: "public" | "users") => {
+    if (!item) return;
+    if (audience === "users" && recipients.length === 0) return;
+    setShareBusy(true);
+    setShareError(null);
+    try {
+      const res = await api.shareItem(
+        item.id,
+        audience === "users" ? recipients.map((person) => person.id) : [],
+      );
+      setShareToken(res.token);
+      setShareAudience(audience);
+      await copyShareLink(res.token);
+    } catch (err) {
+      setShareError(err instanceof ApiError ? err.message : "Could not create the link");
+    } finally {
+      setShareBusy(false);
+    }
+  };
+
+  const revokeShare = async () => {
+    if (!item) return;
+    setShareBusy(true);
+    try {
+      await api.unshareItem(item.id);
+      setShareToken(null);
+      setShareAudience(null);
+      setShareCopied(false);
+    } catch (err) {
+      setShareError(err instanceof ApiError ? err.message : "Could not revoke the link");
+    } finally {
+      setShareBusy(false);
+    }
+  };
+
+  // People search for the private audience, debounced.
+  useEffect(() => {
+    if (!shareOpen || shareTab !== "private") return;
+    const query = peopleQuery.trim();
+    if (query.length < 2) {
+      setPeople([]);
+      setPeopleBusy(false);
+      return;
+    }
+    let alive = true;
+    setPeopleBusy(true);
+    const timer = setTimeout(() => {
+      api
+        .people(query)
+        .then((res) => {
+          if (alive) setPeople(res.people);
+        })
+        .catch(() => {
+          if (alive) setPeople([]);
+        })
+        .finally(() => {
+          if (alive) setPeopleBusy(false);
+        });
+    }, 250);
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+  }, [peopleQuery, shareOpen, shareTab]);
 
   const startResize = (e: React.PointerEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -506,7 +672,7 @@ export function Inspector({
                     : "text-faint hover:bg-raised hover:text-text"
                 }`}
               >
-                <LangIcon lang={file.lang} size={10} />
+                <LangIcon lang={file.lang} size={12} />
                 {file.name}
               </button>
             ))}
@@ -546,21 +712,18 @@ export function Inspector({
         </div>
       ) : null}
 
-      {item.tags_text && item.source !== "github" ? (
+      {tagList.length > 0 && item?.source !== "github" ? (
         <div>
           <p className="mb-1 font-mono text-[9px] uppercase tracking-[0.14em] text-faint">Tags</p>
           <div className="flex flex-wrap gap-1">
-            {item.tags_text
-              .split(" ")
-              .filter(Boolean)
-              .map((tag) => (
-                <span
-                  key={tag}
-                  className={`rounded px-1.5 py-0.5 font-mono text-[10px] ${tagTone(tag)}`}
-                >
-                  #{tag}
-                </span>
-              ))}
+            {tagList.map((tag) => (
+              <span
+                key={tag}
+                className={`rounded px-1.5 py-0.5 font-mono text-[10px] ${tagTone(tag)}`}
+              >
+                #{tag}
+              </span>
+            ))}
           </div>
         </div>
       ) : null}
@@ -608,7 +771,7 @@ export function Inspector({
                   return (
                     <Tooltip key={lang} label={meta.label}>
                       <span className="inline-flex">
-                        <LangIcon lang={lang} size={11} />
+                        <LangIcon lang={lang} size={14} />
                       </span>
                     </Tooltip>
                   );
@@ -617,7 +780,7 @@ export function Inspector({
             ) : (
               <Tooltip label={langMeta(languages[0]).label}>
                 <span className="inline-flex">
-                  <LangIcon lang={languages[0]} size={11} />
+                  <LangIcon lang={languages[0]} size={14} />
                 </span>
               </Tooltip>
             )}
@@ -655,7 +818,7 @@ export function Inspector({
           }}
         >
           <RefreshIcon size={12} />
-          Re-enrich
+          {enriched ? "Re-enrich" : "Enrich"}
         </Button>
         {item.deleted_at ? (
           <Button
@@ -753,12 +916,38 @@ export function Inspector({
           <div className="flex items-center gap-2">
             {item?.url ? (
               <Tooltip label="Open link">
-                <Button asChild variant="ghost" size="icon-sm" className="text-accent">
+                <Button asChild variant="ghost" size="icon-sm" className="text-muted">
                   <a href={item.url} target="_blank" rel="noreferrer" aria-label="Open link">
-                    <ArrowUpRightIcon size={13} />
+                    <GlobeIcon size={13} />
                   </a>
                 </Button>
               </Tooltip>
+            ) : null}
+            {item ? (
+              <>
+                <Tooltip label="Share">
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    className="text-muted"
+                    onClick={() => void openShare()}
+                    aria-label="Share item"
+                  >
+                    <ShareIcon size={13} />
+                  </Button>
+                </Tooltip>
+                <Tooltip label="Open reader">
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    className="text-muted"
+                    onClick={() => openReader(item)}
+                    aria-label="Open note and summary in a new window"
+                  >
+                    <NewTabIcon size={13} />
+                  </Button>
+                </Tooltip>
+              </>
             ) : null}
             <Tooltip label="Close inspector">
               <Button
@@ -787,12 +976,32 @@ export function Inspector({
                     target="_blank"
                     rel="noreferrer"
                     aria-label="Open link"
-                    className="rounded p-1 text-accent hover:bg-raised"
+                    className="rounded p-1 text-muted hover:bg-raised hover:text-text"
                   >
-                    <ArrowUpRightIcon size={14} />
+                    <GlobeIcon size={14} />
                   </a>
                 </Tooltip>
               ) : null}
+              <Tooltip label="Share">
+                <button
+                  type="button"
+                  onClick={() => void openShare()}
+                  aria-label="Share item"
+                  className="rounded p-1 text-muted hover:bg-raised hover:text-text"
+                >
+                  <ShareIcon size={14} />
+                </button>
+              </Tooltip>
+              <Tooltip label="Open reader">
+                <button
+                  type="button"
+                  onClick={() => openReader(item)}
+                  aria-label="Open note and summary in a new window"
+                  className="rounded p-1 text-muted hover:bg-raised hover:text-text"
+                >
+                  <NewTabIcon size={14} />
+                </button>
+              </Tooltip>
               <button
                 type="button"
                 onClick={onClose}
@@ -806,6 +1015,196 @@ export function Inspector({
           {body}
         </div>
       ) : null}
+
+      <Modal
+        open={shareOpen}
+        onClose={() => setShareOpen(false)}
+        title="Share"
+        description="Choose who can open this note."
+        width="max-w-md"
+      >
+        <div
+          role="tablist"
+          aria-label="Audience"
+          className="mt-1 mb-4 grid grid-cols-2 gap-1 rounded-[var(--radius)] bg-raised p-1"
+        >
+          {[
+            { id: "public" as const, label: "Public", icon: GlobeIcon },
+            { id: "private" as const, label: "People", icon: UsersIcon },
+          ].map((tab) => {
+            const Icon = tab.icon;
+            const active = shareTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => setShareTab(tab.id)}
+                className={`flex items-center justify-center gap-1.5 rounded-[6px] px-2 py-1.5 text-[11.5px] transition ${
+                  active ? "bg-panel text-text shadow-sm" : "text-muted hover:text-text"
+                }`}
+              >
+                <Icon size={12} />
+                {tab.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {shareTab === "public" ? (
+          <div className="space-y-3">
+            <p className="text-[11.5px] leading-relaxed text-muted">
+              Anyone with the link can read the AI summary and the original note.
+            </p>
+            {shareToken && shareAudience === "public" ? (
+              <>
+                <ShareLinkField
+                  url={shareUrl(shareToken)}
+                  copied={shareCopied}
+                  onCopy={() => void copyShareLink(shareToken)}
+                />
+                <div className="flex items-center justify-between">
+                  <span className="font-mono text-[9px] uppercase tracking-[0.14em] text-accent">
+                    Public link active
+                  </span>
+                  <button
+                    type="button"
+                    disabled={shareBusy}
+                    onClick={() => void revokeShare()}
+                    className="rounded px-1.5 py-1 text-[11px] text-faint transition hover:bg-raised hover:text-coral"
+                  >
+                    Revoke
+                  </button>
+                </div>
+              </>
+            ) : (
+              <Button
+                type="button"
+                size="sm"
+                className="w-full"
+                disabled={shareBusy}
+                onClick={() => void createShare("public")}
+              >
+                <ShareIcon size={12} />
+                Create public link
+              </Button>
+            )}
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <div>
+              <label
+                htmlFor="share-people"
+                className="mb-1 block font-mono text-[9px] uppercase tracking-[0.14em] text-faint"
+              >
+                Add people
+              </label>
+              <input
+                id="share-people"
+                value={peopleQuery}
+                onChange={(event) => setPeopleQuery(event.target.value)}
+                placeholder="Email or name"
+                autoComplete="off"
+                className="h-8 w-full rounded-[6px] bg-raised px-2.5 text-[12px] text-text outline-none placeholder:text-faint focus:ring-1 focus:ring-accent/40"
+              />
+            </div>
+
+            {peopleQuery.trim().length >= 2 ? (
+              <ul className="max-h-36 overflow-y-auto rounded-[6px] border border-line/60">
+                {peopleBusy && people.length === 0 ? (
+                  <li className="px-2.5 py-2 text-[11.5px] text-faint">Searching…</li>
+                ) : people.filter((person) => !recipients.some((row) => row.id === person.id))
+                    .length === 0 ? (
+                  <li className="px-2.5 py-2 text-[11.5px] text-faint">No matching member</li>
+                ) : (
+                  people
+                    .filter((person) => !recipients.some((row) => row.id === person.id))
+                    .map((person) => (
+                      <li key={person.id}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setRecipients((prev) => [...prev, person]);
+                            setPeopleQuery("");
+                            setPeople([]);
+                          }}
+                          className="flex w-full items-center justify-between gap-2 px-2.5 py-1.5 text-left text-[12px] text-muted transition hover:bg-raised hover:text-text"
+                        >
+                          <span className="truncate">{person.name ?? person.email}</span>
+                          <span className="truncate font-mono text-[10px] text-faint">
+                            {person.email}
+                          </span>
+                        </button>
+                      </li>
+                    ))
+                )}
+              </ul>
+            ) : null}
+
+            {recipients.length > 0 ? (
+              <div className="flex flex-wrap gap-1">
+                {recipients.map((person) => (
+                  <span
+                    key={person.id}
+                    className="flex items-center gap-1 rounded-full bg-raised px-2 py-0.5 text-[11px] text-muted"
+                  >
+                    {person.name ?? person.email}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setRecipients((prev) => prev.filter((row) => row.id !== person.id))
+                      }
+                      aria-label={`Remove ${person.email}`}
+                      className="text-faint transition hover:text-coral"
+                    >
+                      <CloseIcon size={10} />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <p className="text-[11px] text-faint">Nobody selected yet.</p>
+            )}
+
+            <Button
+              type="button"
+              size="sm"
+              className="w-full"
+              disabled={shareBusy || recipients.length === 0}
+              onClick={() => void createShare("users")}
+            >
+              <ShareIcon size={12} />
+              {shareAudience === "users" ? "Update private link" : "Create private link"}
+            </Button>
+
+            {shareToken && shareAudience === "users" ? (
+              <>
+                <ShareLinkField
+                  url={shareUrl(shareToken)}
+                  copied={shareCopied}
+                  onCopy={() => void copyShareLink(shareToken)}
+                />
+                <div className="flex items-center justify-between">
+                  <span className="font-mono text-[9px] uppercase tracking-[0.14em] text-accent">
+                    Private · {recipients.length} {recipients.length === 1 ? "person" : "people"}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={shareBusy}
+                    onClick={() => void revokeShare()}
+                    className="rounded px-1.5 py-1 text-[11px] text-faint transition hover:bg-raised hover:text-coral"
+                  >
+                    Revoke
+                  </button>
+                </div>
+              </>
+            ) : null}
+          </div>
+        )}
+
+        {shareError ? <p className="mt-2 text-[11.5px] text-coral">{shareError}</p> : null}
+      </Modal>
     </>
   );
 }

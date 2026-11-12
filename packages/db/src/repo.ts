@@ -39,6 +39,7 @@ export interface ItemListOptions {
   cursor?: string;
   includeDeleted?: boolean;
   status?: ItemStatus;
+  embeddingState?: "pending" | "ready" | "failed" | "skipped";
 }
 
 export type ItemStatus = "active" | "archived" | "trash";
@@ -109,6 +110,157 @@ export async function getItem(db: SqlClient, ws: string, id: string): Promise<It
     "select * from items where id = ? and workspace_id = ? and deleted_at is null",
     [id, ws],
   );
+}
+
+export interface ItemShareRow {
+  token: string;
+  item_id: string;
+  workspace_id: string;
+  audience: "public" | "users";
+  created_at: number;
+  revoked_at: number | null;
+}
+
+export interface SharePerson {
+  id: string;
+  email: string;
+  name: string | null;
+}
+
+/** Workspace members matching an email or name fragment. */
+export async function searchPeople(
+  db: SqlClient,
+  ws: string,
+  query: string,
+  limit = 8,
+): Promise<SharePerson[]> {
+  assertWorkspaceId(ws);
+  const like = `%${query.trim().toLowerCase()}%`;
+  if (!query.trim()) return [];
+  return db.all<SharePerson>(
+    `select u.id, u.email, u.name from memberships m
+     join users u on u.id = m.user_id
+     where m.workspace_id = ?
+       and (lower(u.email) like ? or lower(coalesce(u.name, '')) like ?)
+     order by u.email limit ?`,
+    [ws, like, like, limit],
+  );
+}
+
+/** Keeps only ids that are members of the workspace. */
+export async function filterWorkspaceMembers(
+  db: SqlClient,
+  ws: string,
+  ids: string[],
+): Promise<string[]> {
+  assertWorkspaceId(ws);
+  if (ids.length === 0) return [];
+  const rows = await db.all<{ id: string }>(
+    `select user_id as id from memberships
+     where workspace_id = ? and user_id in (${ids.map(() => "?").join(",")})`,
+    [ws, ...ids],
+  );
+  return rows.map((row) => row.id);
+}
+
+/** Active share token for an item; an empty `recipients` list means public. */
+export async function shareItem(
+  db: SqlClient,
+  ws: string,
+  itemId: string,
+  recipients: string[] = [],
+): Promise<string | null> {
+  assertWorkspaceId(ws);
+  const item = await getItem(db, ws, itemId);
+  if (!item) return null;
+  const audience = recipients.length > 0 ? "users" : "public";
+  const existing = await db.first<ItemShareRow>(
+    "select * from item_shares where item_id = ? and workspace_id = ? and revoked_at is null",
+    [itemId, ws],
+  );
+  const token = existing?.token ?? randomToken(24);
+  if (existing) {
+    await db.run("update item_shares set audience = ? where token = ?", [audience, token]);
+  } else {
+    await db.run(
+      "insert into item_shares (token, item_id, workspace_id, audience, created_at) values (?,?,?,?,?)",
+      [token, itemId, ws, audience, Date.now()],
+    );
+  }
+  await db.run("delete from item_share_recipients where token = ?", [token]);
+  for (const userId of recipients) {
+    await db.run("insert or ignore into item_share_recipients (token, user_id) values (?,?)", [
+      token,
+      userId,
+    ]);
+  }
+  return token;
+}
+
+export interface ItemShare {
+  token: string;
+  audience: "public" | "users";
+  recipients: SharePerson[];
+}
+
+export async function itemShare(
+  db: SqlClient,
+  ws: string,
+  itemId: string,
+): Promise<ItemShare | null> {
+  assertWorkspaceId(ws);
+  const share = await db.first<ItemShareRow>(
+    "select * from item_shares where item_id = ? and workspace_id = ? and revoked_at is null",
+    [itemId, ws],
+  );
+  if (!share) return null;
+  const recipients =
+    share.audience === "users"
+      ? await db.all<SharePerson>(
+          `select u.id, u.email, u.name from item_share_recipients r
+           join users u on u.id = r.user_id where r.token = ? order by u.email`,
+          [share.token],
+        )
+      : [];
+  return { token: share.token, audience: share.audience, recipients };
+}
+
+export async function unshareItem(db: SqlClient, ws: string, itemId: string): Promise<boolean> {
+  assertWorkspaceId(ws);
+  const existing = await db.first<ItemShareRow>(
+    "select * from item_shares where item_id = ? and workspace_id = ? and revoked_at is null",
+    [itemId, ws],
+  );
+  if (!existing) return false;
+  await db.run("update item_shares set revoked_at = ? where token = ?", [
+    Date.now(),
+    existing.token,
+  ]);
+  return true;
+}
+
+/** Share lookup. Public tokens need no user; `users` shares check membership. */
+export async function sharedItem(
+  db: SqlClient,
+  token: string,
+  userId?: string | null,
+): Promise<ItemRow | null> {
+  const share = await db.first<ItemShareRow>(
+    "select * from item_shares where token = ? and revoked_at is null",
+    [token],
+  );
+  if (!share) return null;
+  if (share.audience === "users") {
+    if (!userId) return null;
+    const allowed = await db.first<{ ok: number }>(
+      "select 1 as ok from item_share_recipients where token = ? and user_id = ?",
+      [token, userId],
+    );
+    if (!allowed) return null;
+  }
+  return db.first<ItemRow>("select * from items where id = ? and deleted_at is null", [
+    share.item_id,
+  ]);
 }
 
 export async function createItem(
@@ -214,6 +366,10 @@ export async function listItems(
     where.push("kind = ?");
     params.push(opts.kind);
   }
+  if (opts.embeddingState) {
+    where.push("embedding_state = ?");
+    params.push(opts.embeddingState);
+  }
   if (opts.cursor) {
     const cursor = Number(opts.cursor);
     if (Number.isFinite(cursor) && cursor > 0) {
@@ -240,6 +396,10 @@ export interface ItemPatch {
   filesJson?: string;
   tags?: string[];
   embeddingState?: ItemRow["embedding_state"];
+  /** `null` clears a previous failure; omit to leave it untouched. */
+  enrichError?: string | null;
+  /** Epoch ms while a worker is inside this item; `null` when it finishes. */
+  enrichStartedAt?: number | null;
   contentR2Key?: string;
 }
 
@@ -259,6 +419,8 @@ export async function updateItem(
       files_json = coalesce(?, files_json),
       content_r2_key = coalesce(?, content_r2_key),
       embedding_state = coalesce(?, embedding_state),
+      enrich_error = case when ? then ? else enrich_error end,
+      enrich_started_at = case when ? then ? else enrich_started_at end,
       updated_at = ?
     where id = ? and workspace_id = ?`,
     [
@@ -269,6 +431,10 @@ export async function updateItem(
       patch.filesJson ?? null,
       patch.contentR2Key ?? null,
       patch.embeddingState ?? null,
+      patch.enrichError !== undefined ? 1 : 0,
+      patch.enrichError ?? null,
+      patch.enrichStartedAt !== undefined ? 1 : 0,
+      patch.enrichStartedAt ?? null,
       Date.now(),
       id,
       ws,
@@ -989,6 +1155,64 @@ export interface WorkspaceUsage {
   enrichments_month: number;
 }
 
+/** Per-state counts for the sidebar's enrichment queue. */
+export interface EnrichmentQueue {
+  /** Everything waiting, including the one a worker is inside (`running`). */
+  pending: number;
+  running: number;
+  ready: number;
+  failed: number;
+  skipped: number;
+  total: number;
+}
+
+export async function enrichmentQueueFor(db: SqlClient, ws: string): Promise<EnrichmentQueue> {
+  assertWorkspaceId(ws);
+  const row = await db.first<EnrichmentQueue>(
+    `select
+      coalesce(sum(case when embedding_state = 'pending' then 1 else 0 end), 0) as pending,
+      coalesce(sum(case when embedding_state = 'pending' and enrich_started_at is not null then 1 else 0 end), 0) as running,
+      coalesce(sum(case when embedding_state = 'ready' then 1 else 0 end), 0) as ready,
+      coalesce(sum(case when embedding_state = 'failed' then 1 else 0 end), 0) as failed,
+      coalesce(sum(case when embedding_state = 'skipped' then 1 else 0 end), 0) as skipped,
+      count(*) as total
+     from items where workspace_id = ? and deleted_at is null`,
+    [ws],
+  );
+  return row ?? { pending: 0, running: 0, ready: 0, failed: 0, skipped: 0, total: 0 };
+}
+
+export interface EnrichmentQueueItems {
+  running: ItemRow[];
+  queued: ItemRow[];
+  done: ItemRow[];
+  failed: ItemRow[];
+  skipped: ItemRow[];
+}
+
+/** Detail rows for the sidebar's queue dialog, newest first, capped per state. */
+export async function enrichmentQueueItems(
+  db: SqlClient,
+  ws: string,
+  limit = 25,
+): Promise<EnrichmentQueueItems> {
+  assertWorkspaceId(ws);
+  const page = (clause: string) =>
+    db.all<ItemRow>(
+      `select * from items where workspace_id = ? and deleted_at is null and ${clause}
+       order by updated_at desc limit ?`,
+      [ws, limit],
+    );
+  const [running, queued, done, failed, skipped] = await Promise.all([
+    page("embedding_state = 'pending' and enrich_started_at is not null"),
+    page("embedding_state = 'pending' and enrich_started_at is null"),
+    page("embedding_state = 'ready'"),
+    page("embedding_state = 'failed'"),
+    page("embedding_state = 'skipped'"),
+  ]);
+  return { running, queued, done, failed, skipped };
+}
+
 export interface ProviderCredentialRow {
   app_id: string;
   client_id: string;
@@ -1402,6 +1626,13 @@ export function forWorkspace(db: SqlClient, workspaceId: string) {
       listMcpEvents(db, workspaceId, apiKeyId, limit),
     revokeApiKey: (id: string) => revokeApiKey(db, workspaceId, id),
     usage: () => usageFor(db, workspaceId),
+    enrichmentQueue: () => enrichmentQueueFor(db, workspaceId),
+    shareItem: (id: string, recipients?: string[]) => shareItem(db, workspaceId, id, recipients),
+    itemShare: (id: string) => itemShare(db, workspaceId, id),
+    unshareItem: (id: string) => unshareItem(db, workspaceId, id),
+    searchPeople: (query: string) => searchPeople(db, workspaceId, query),
+    filterWorkspaceMembers: (ids: string[]) => filterWorkspaceMembers(db, workspaceId, ids),
+    enrichmentQueueItems: (limit?: number) => enrichmentQueueItems(db, workspaceId, limit),
     setPlan: (plan: WorkspaceRow["plan"]) => updateWorkspacePlan(db, workspaceId, plan),
     incrementUsage: (column: "enrichments" | "mcp_calls", amount?: number) =>
       incrementUsage(db, workspaceId, column, amount),

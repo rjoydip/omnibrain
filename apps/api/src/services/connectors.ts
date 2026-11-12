@@ -1,5 +1,5 @@
 import { buildAuthorizeUrl, exchangeCode, syncApp, type TokenSet } from "@omnibrain/connectors";
-import { sha256Hex } from "@omnibrain/core";
+import { cleanGeneratedTags, sha256Hex } from "@omnibrain/core";
 import { type ConnectionRow, forWorkspace, getProviderCredential } from "@omnibrain/db";
 import { canonicalizeUrl } from "@omnibrain/search";
 import { decryptSecret } from "../crypto";
@@ -236,7 +236,7 @@ export async function syncConnection(
           filesJson: item.files ? JSON.stringify(item.files) : null,
           summary: item.summary ?? null,
           lang: item.lang ?? null,
-          tags: item.tags ?? [],
+          tags: cleanGeneratedTags(item.tags ?? []),
           capturedAt: item.capturedAt ?? Date.now(),
           contentHash,
         });

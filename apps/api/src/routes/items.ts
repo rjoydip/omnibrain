@@ -1,4 +1,5 @@
 import {
+  AppError,
   checkEntitlement,
   ImportItemSchema,
   ItemCreateSchema,
@@ -42,6 +43,9 @@ export function usageToCore(usage: {
   };
 }
 
+/** Cap per request: each queued item is one outbound fetch plus an AI call. */
+const ENRICH_PER_REQUEST = 10;
+
 export async function planUsage(repo: ScopedRepo) {
   const usage = await repo.usage();
   return usageToCore(usage);
@@ -68,6 +72,7 @@ itemRoutes.get("/", query(ItemQuerySchema), async (c) => {
     source: q.source,
     kind: q.kind,
     status: q.status,
+    embeddingState: q.embedding,
     cursor: q.cursor,
   });
   const total = await repo.countItems(q.status);
@@ -112,15 +117,20 @@ itemRoutes.post("/batch", body(BatchSchema), async (c) => {
   let created = 0;
   let duplicates = 0;
   let invalid = 0;
+  const fresh: string[] = [];
   for (const raw of accepted) {
     if (!raw.url && !raw.title && !raw.note) {
       invalid++;
       continue;
     }
     const res = await createItemFromRaw(repo, raw);
-    if (res.created) created++;
-    else duplicates++;
+    if (res.created) {
+      created++;
+      if (res.item.url && fresh.length < ENRICH_PER_REQUEST) fresh.push(res.item.id);
+    } else duplicates++;
   }
+  // Kick the queue for the first page; the rest wait for "Run queue".
+  for (const id of fresh) scheduleEnrich(c, workspaceId, id);
   if (import_id) await repo.bumpImport(import_id, accepted.length);
   if (created > 0) {
     await repo.audit(c.get("session").user_id, "item.batch", import_id ?? null, {
@@ -138,6 +148,68 @@ itemRoutes.post("/batch", body(BatchSchema), async (c) => {
     accepted: accepted.length,
     quota: ent,
   });
+});
+
+/** Sidebar queue dialog: counts plus detail rows for each state. */
+itemRoutes.get("/queue", async (c) => {
+  const repo = repoOf(c.env, c.get("workspaceId"));
+  const [counts, items] = await Promise.all([
+    repo.enrichmentQueue(),
+    repo.enrichmentQueueItems(25),
+  ]);
+  return c.json({ counts, items });
+});
+
+/** Starts the next page of queued items. */
+itemRoutes.post("/queue/run", async (c) => {
+  requireRole(c, ["owner", "admin", "member"]);
+  const workspaceId = c.get("workspaceId");
+  const repo = repoOf(c.env, workspaceId);
+  const pending = await repo.listItems({ embeddingState: "pending", limit: ENRICH_PER_REQUEST });
+  const runnable = pending.items.filter((item) => item.url);
+  for (const item of runnable) scheduleEnrich(c, workspaceId, item.id);
+  if (runnable.length > 0) {
+    await repo.audit(c.get("session").user_id, "queue.run", null, { started: runnable.length });
+  }
+  return c.json({ started: runnable.length });
+});
+
+itemRoutes.get("/:id/share", async (c) => {
+  const repo = repoOf(c.env, c.get("workspaceId"));
+  const item = await repo.getItem(c.req.param("id"));
+  if (!item) throw new AppError("not_found", "Item not found", 404);
+  const share = await repo.itemShare(item.id);
+  return c.json({ share, enabled: Boolean(share) });
+});
+
+const ShareSchema = z.object({ recipients: z.array(z.string()).max(50).optional() });
+
+itemRoutes.post("/:id/share", body(ShareSchema), async (c) => {
+  requireRole(c, ["owner", "admin", "member"]);
+  const repo = repoOf(c.env, c.get("workspaceId"));
+  const item = await repo.getItem(c.req.param("id"));
+  if (!item) throw new AppError("not_found", "Item not found", 404);
+  if (!item.excerpt && !item.summary) {
+    throw new AppError("bad_request", "Nothing to share yet", 400);
+  }
+  const requested = c.req.valid("json").recipients ?? [];
+  const recipients = await repo.filterWorkspaceMembers(requested);
+  const token = await repo.shareItem(item.id, recipients);
+  await repo.audit(c.get("session").user_id, "item.share", item.id, {
+    audience: recipients.length > 0 ? "users" : "public",
+    recipients: recipients.length,
+  });
+  const share = await repo.itemShare(item.id);
+  return c.json({ token, share, enabled: Boolean(token) });
+});
+
+itemRoutes.delete("/:id/share", async (c) => {
+  requireRole(c, ["owner", "admin", "member"]);
+  const repo = repoOf(c.env, c.get("workspaceId"));
+  const itemId = c.req.param("id");
+  const revoked = await repo.unshareItem(itemId);
+  if (revoked) await repo.audit(c.get("session").user_id, "item.unshare", itemId);
+  return c.json({ enabled: false });
 });
 
 itemRoutes.get("/:id/related", async (c) => {

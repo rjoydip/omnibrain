@@ -54,6 +54,7 @@ export const ItemQuerySchema = z.object({
   source: z.enum(SOURCES).optional(),
   kind: z.enum(KINDS).optional(),
   status: z.enum(["active", "archived", "trash"]).default("active"),
+  embedding: z.enum(["pending", "ready", "failed", "skipped"]).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
   cursor: z.string().optional(),
   q: z.string().trim().max(200).optional(),

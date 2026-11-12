@@ -4,7 +4,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./markdown": "./src/markdown.ts"
+    "./markdown": "./src/markdown.ts",
+    "./tags": "./src/tags.ts"
   },
   "dependencies": {
     "zod": "^4.6.7"

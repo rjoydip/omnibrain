@@ -78,6 +78,13 @@ function mockProviders() {
       return new Response(JSON.stringify({ access_token: "n-tok", workspace_id: "ws-n" }));
     if (url === "https://api.notion.com/v1/search")
       return new Response(JSON.stringify({ results: [notionPage], has_more: false }));
+    if (url.startsWith("https://api.notion.com/v1/blocks/"))
+      return new Response(
+        JSON.stringify({
+          results: [{ type: "paragraph", paragraph: { rich_text: [{ plain_text: "Body" }] } }],
+          has_more: false,
+        }),
+      );
     if (url.startsWith("https://github.com/login/oauth/access_token"))
       return new Response(JSON.stringify({ access_token: "gh-tok" }));
     if (url === "https://api.github.com/user")

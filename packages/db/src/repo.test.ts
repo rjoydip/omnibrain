@@ -6,6 +6,7 @@ import {
   findApiKey,
   forWorkspace,
   getSession,
+  sharedItem,
   usageFor,
 } from "./repo";
 import { memoryClient } from "./sqlite";
@@ -243,6 +244,44 @@ describe("usage", () => {
     expect(usage.mcp_calls_day).toBe(3);
     expect(usage.enrichments_month).toBe(2);
   });
+
+  test("enrichment queue counts items by embedding state", async () => {
+    const { db, wsA, wsB } = await setup();
+    const repo = forWorkspace(db, wsA);
+    await repo.createItem({ ...baseItem, canonicalUrl: "https://example.com/q1" });
+    const done = await repo.createItem({ ...baseItem, canonicalUrl: "https://example.com/q2" });
+    await repo.updateItem(done.item.id, { embeddingState: "ready" });
+    const bad = await repo.createItem({ ...baseItem, canonicalUrl: "https://example.com/q3" });
+    await repo.updateItem(bad.item.id, { embeddingState: "failed" });
+    // Another workspace must not leak into the counts.
+    await forWorkspace(db, wsB).createItem({
+      ...baseItem,
+      canonicalUrl: "https://example.com/q4",
+    });
+
+    expect(await repo.enrichmentQueue()).toEqual({
+      pending: 1,
+      running: 0,
+      ready: 1,
+      failed: 1,
+      skipped: 0,
+      total: 3,
+    });
+    const queued = await repo.listItems({ embeddingState: "pending" });
+    expect(queued.items.map((item) => item.title)).toEqual([baseItem.title]);
+  });
+
+  test("enrich_error records a failure and clears on success", async () => {
+    const { db, wsA } = await setup();
+    const repo = forWorkspace(db, wsA);
+    const { item } = await repo.createItem({ ...baseItem, canonicalUrl: "https://example.com/e1" });
+
+    await repo.updateItem(item.id, { embeddingState: "failed", enrichError: "fetch failed" });
+    expect((await repo.getItem(item.id))?.enrich_error).toBe("fetch failed");
+
+    await repo.updateItem(item.id, { embeddingState: "ready", enrichError: null });
+    expect((await repo.getItem(item.id))?.enrich_error).toBeNull();
+  });
 });
 
 describe("multi-workspace", () => {
@@ -253,5 +292,31 @@ describe("multi-workspace", () => {
     await repo.createItem({ ...baseItem, canonicalUrl: "https://work.example/1" });
     const { listWorkspaces } = await import("./repo");
     expect((await listWorkspaces(db, userA.id)).length).toBe(2);
+  });
+});
+
+describe("item shares", () => {
+  test("user-scoped links only resolve for the recipients", async () => {
+    const { db, wsA, userA, userB } = await setup();
+    const repo = forWorkspace(db, wsA);
+    const { item } = await repo.createItem({ ...baseItem, canonicalUrl: "https://example.com/s1" });
+
+    const token = await repo.shareItem(item.id, [userB.id]);
+    expect(token).toBeTruthy();
+    expect(await sharedItem(db, token!, userA.id)).toBeNull();
+    expect(await sharedItem(db, token!)).toBeNull();
+    expect((await sharedItem(db, token!, userB.id))?.id).toBe(item.id);
+
+    expect((await repo.itemShare(item.id))?.audience).toBe("users");
+    expect(await repo.unshareItem(item.id)).toBe(true);
+    expect(await sharedItem(db, token!, userB.id)).toBeNull();
+  });
+
+  test("a public link needs no user", async () => {
+    const { db, wsA } = await setup();
+    const repo = forWorkspace(db, wsA);
+    const { item } = await repo.createItem({ ...baseItem, canonicalUrl: "https://example.com/s2" });
+    const token = await repo.shareItem(item.id);
+    expect((await sharedItem(db, token!))?.id).toBe(item.id);
   });
 });

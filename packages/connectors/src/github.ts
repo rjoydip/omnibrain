@@ -1,4 +1,5 @@
 import type { ConnectorFile, ConnectorItem, ListResult } from "./types";
+import { mapLimited } from "./util";
 
 interface GithubGistFile {
   filename?: string;
@@ -108,24 +109,6 @@ function formatFiles(files: GithubGistFile[]): {
     )
     .join("\n\n");
   return { text, lang: "markdown", files: structured };
-}
-
-/** Small concurrency pool so gist content fetches stay within API limits. */
-async function mapLimited<T, R>(
-  values: T[],
-  limit: number,
-  fn: (value: T) => Promise<R>,
-): Promise<R[]> {
-  const out: R[] = [];
-  let next = 0;
-  const workers = Array.from({ length: Math.min(limit, values.length) }, async () => {
-    while (next < values.length) {
-      const index = next++;
-      out[index] = await fn(values[index]!);
-    }
-  });
-  await Promise.all(workers);
-  return out;
 }
 
 /**

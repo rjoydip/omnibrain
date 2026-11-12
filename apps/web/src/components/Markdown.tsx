@@ -168,11 +168,29 @@ function Block({ block }: { block: MarkdownBlock }) {
 }
 
 /** Renders the shared markdown subset with app tokens. */
-export function Markdown({ text, className }: { text: string; className?: string }) {
-  const blocks = useMemo(() => parseMarkdown(text), [text]);
+function expandCollapsedTasks(text: string): string {
+  // Legacy summaries collapsed newlines, so task markers sat mid-line.
+  return text.includes("\n") ? text : text.replace(/ (?=- \[[ xX]\] )/g, "\n");
+}
+
+export function Markdown({
+  text,
+  className,
+  compact = false,
+}: {
+  text: string;
+  className?: string;
+  /** Row preview: no card chrome, smaller type. */
+  compact?: boolean;
+}) {
+  const blocks = useMemo(() => parseMarkdown(expandCollapsedTasks(text)), [text]);
   return (
     <div
-      className={`space-y-1.5 rounded-[var(--radius)] bg-canvas/50 p-3 text-[12.5px] leading-relaxed text-text ${className ?? ""}`}
+      className={
+        compact
+          ? `space-y-1 text-[11.5px] leading-relaxed text-muted ${className ?? ""}`
+          : `space-y-1.5 rounded-[var(--radius)] bg-canvas/50 p-3 text-[12.5px] leading-relaxed text-text ${className ?? ""}`
+      }
     >
       {blocks.map((block, index) => (
         <Block key={index} block={block} />

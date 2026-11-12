@@ -79,7 +79,10 @@ and never returned by an API; the secret is only decrypted inside the token exch
 
 Exchange uses JSON + Basic auth (not form-encoded), so Notion is handled specially in
 `packages/connectors`. The adapter enumerates pages through `POST /v1/search` sorted by last edited
-time. There is no reliable page-content webhook, so sync is a 15-minute cursor poll at ~3 req/s.
+time, then reads each page body from `GET /v1/blocks/{id}/children` and stores it as markdown (up to
+two block pages, three requests in flight, one retry on `429`). Search pages are 25 results each so a
+single run stays within Worker subrequests. There is no reliable page-content webhook, so sync is a
+15-minute cursor poll at ~3 req/s.
 
 ### GitHub
 
