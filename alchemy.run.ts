@@ -49,6 +49,7 @@ export default Alchemy.Stack(
     });
 
     const web = yield* Cloudflare.Website.Vite("Web", {
+      name: "omnibrain",
       rootDir: "./apps/web",
       env: {
         VITE_API_URL: api.url.as<string>(),
