@@ -2,21 +2,47 @@
 
 ## Environment variables
 
-| Variable                  | Required      | Purpose                                                     |
-| ------------------------- | ------------- | ----------------------------------------------------------- |
-| `AUTH_SECRET`             | yes           | OTP pepper + session/signing fallback; 32+ random chars     |
-| `TOKEN_KEY`               | recommended   | AES-GCM key for connector tokens; defaults to `AUTH_SECRET` |
-| `CLOUDFLARE_ACCOUNT_ID`   | yes (deploy)  | Account for Alchemy/Cloudflare API calls                    |
-| `CLOUDFLARE_API_TOKEN`    | yes (deploy)  | Token with Workers/D1/R2/Vectorize/KV edit access           |
-| `APP_ORIGIN`              | auto (prod)   | Web origin for CORS, cookies, OAuth redirects               |
-| `NOTION_CLIENT_ID/SECRET` | optional      | OAuth app; enables one-click Notion sign-in                 |
-| `GH_CLIENT_ID/SECRET`     | optional      | OAuth app; not needed when using a personal access token    |
-| `EMAIL_FROM`              | recommended   | Verified sender for Cloudflare Email Service                |
-| `EMAIL` (binding)         | yes in prod   | `send_email` binding provisioned by `alchemy.run.ts`        |
-| `DEV_MODE`                | never in prod | Returns the OTP to the dev UI; dev server sets it           |
+| Variable                  | Required      | Purpose                                                                 |
+| ------------------------- | ------------- | ----------------------------------------------------------------------- |
+| `AUTH_SECRET`             | yes           | OTP pepper + session/signing fallback; 32+ random chars                 |
+| `TOKEN_KEY`               | recommended   | AES-GCM key for connector tokens; defaults to `AUTH_SECRET`             |
+| `CLOUDFLARE_ACCOUNT_ID`   | yes (deploy)  | Account for Alchemy/Cloudflare API calls                                |
+| `CLOUDFLARE_API_TOKEN`    | yes (deploy)  | Account-scoped token; see [Cloudflare API token](#cloudflare-api-token) |
+| `APP_ORIGIN`              | auto (prod)   | Web origin for CORS, cookies, OAuth redirects                           |
+| `NOTION_CLIENT_ID/SECRET` | optional      | OAuth app; enables one-click Notion sign-in                             |
+| `GH_CLIENT_ID/SECRET`     | optional      | OAuth app; not needed when using a personal access token                |
+| `EMAIL_FROM`              | recommended   | Verified sender for Cloudflare Email Service                            |
+| `EMAIL` (binding)         | yes in prod   | `send_email` binding provisioned by `alchemy.run.ts`                    |
+| `DEV_MODE`                | never in prod | Returns the OTP to the dev UI; dev server sets it                       |
 
 Generate secrets with `openssl rand -base64 32` or `bun -e 'console.log(crypto.randomUUID())'`
 (repeat/cat for length).
+
+## Cloudflare API token
+
+Create a token under **My Profile → API Tokens → Create Token → Custom token**, scoped to
+**Account resources → Include → \<your account\>**. Alchemy needs only these account permissions:
+
+| Permission                | Why                                                     |
+| ------------------------- | ------------------------------------------------------- |
+| `Workers Scripts:Edit`    | API Worker, Vite site, and Alchemy's state-store Worker |
+| `D1:Edit`                 | create the database and apply `packages/db/migrations`  |
+| `Workers R2 Storage:Edit` | create the blobs bucket                                 |
+| `Vectorize:Edit`          | create the 1024-dim cosine index                        |
+| `Secrets Store:Edit`      | store the Alchemy state-store encryption key            |
+| `Account Settings:Read`   | resolve the account and its `workers.dev` subdomain     |
+
+Notes:
+
+- `Workers Scripts:Edit` must allow create/delete, not just update; newer dashboards label the
+  same permission group `Workers Admin`.
+- No zone permissions are required. Add `Zone:Workers Routes:Edit` and `Zone:DNS:Edit` only if you
+  attach a custom domain instead of the `workers.dev` URL.
+- `Email Sending` is not required: `Email.SendEmail` is a bind-only descriptor, so sending uses the
+  Worker's `send_email` binding at runtime, not the API token.
+- `Workers KV Storage` is not required; Alchemy keeps state in a Durable Object-backed Worker.
+- The same token works locally (`.env`) and in CI (`CLOUDFLARE_API_TOKEN` secret). Prefer separate
+  tokens per environment if you want independent revocation.
 
 ## First deploy
 
