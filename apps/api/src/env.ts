@@ -28,6 +28,8 @@ export interface Env {
   TOKEN_KEY?: string;
   APP_ORIGIN?: string;
   DEV_MODE?: string;
+  /** Feature flag: enable email OTP sign-in alongside password auth. */
+  AUTH_OTP_ENABLED?: string;
   EMAIL?: EmailSender;
   EMAIL_FROM?: string;
   NOTION_CLIENT_ID?: string;
@@ -53,6 +55,14 @@ function isSqlClient(db: unknown): db is SqlClient {
 
 export function dbOf(env: Env): SqlClient {
   return isSqlClient(env.DB) ? env.DB : fromD1(env.DB as unknown as D1Like);
+}
+
+/**
+ * Opt-in in production; the dev server sets AUTH_OTP_ENABLED=1 by default so
+ * the local sign-in screen can exercise the email-code path.
+ */
+export function otpEnabled(env: Env): boolean {
+  return /^(1|true|yes|on)$/i.test(env.AUTH_OTP_ENABLED?.trim() ?? "");
 }
 
 export function repoOf(env: Env, workspaceId: string) {

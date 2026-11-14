@@ -6,6 +6,7 @@ import {
   findApiKey,
   forWorkspace,
   getSession,
+  listDueConnections,
   sharedItem,
   usageFor,
 } from "./repo";
@@ -226,6 +227,30 @@ describe("export", () => {
       [wsA],
     );
     expect(stored?.secret_ciphertext).toContain("v1:");
+  });
+});
+
+describe("connection schedules", () => {
+  test("due selection follows the stored interval and manual override", async () => {
+    const { db, wsA } = await setup();
+    const repo = forWorkspace(db, wsA);
+    const connection = await repo.upsertConnection({
+      appId: "notion",
+      status: "connected",
+      syncIntervalMinutes: 15,
+    });
+    expect(connection.sync_interval_minutes).toBe(15);
+
+    const due = await listDueConnections(db, Date.now());
+    expect(due.some((row) => row.id === connection.id)).toBe(true);
+
+    await repo.updateConnection(connection.id, { lastSyncedAt: Date.now() });
+    expect((await listDueConnections(db, Date.now())).some((row) => row.id === connection.id)).toBe(
+      false,
+    );
+
+    await repo.updateConnection(connection.id, { syncIntervalMinutes: 0 });
+    expect((await listDueConnections(db, Date.now() + 60 * 60 * 1000)).length).toBe(0);
   });
 });
 

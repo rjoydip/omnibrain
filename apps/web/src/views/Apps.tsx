@@ -8,6 +8,11 @@ import {
   EmptyState,
   Input,
   Modal,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
   Spinner,
   Tooltip,
 } from "@omnibrain/ui";
@@ -31,11 +36,13 @@ function envHint(app: AppInfo): string {
   return "GH_CLIENT_ID / GH_CLIENT_SECRET";
 }
 
-/** "every 15m" from a cron like "*\/15 * * * *"; manual when there is no schedule. */
-function cadence(schedule?: string): string {
-  const match = schedule?.match(/^\*\/(\d+) \* \* \* \*$/);
-  if (match?.[1]) return `auto every ${match[1]}m`;
-  return schedule ? "scheduled" : "manual sync";
+function scheduleLabel(minutes = 0): string {
+  if (minutes <= 0) return "Manual";
+  if (minutes === 60) return "Hourly";
+  if (minutes === 1440) return "Daily";
+  if (minutes % 1440 === 0) return `Every ${minutes / 1440} days`;
+  if (minutes % 60 === 0) return `Every ${minutes / 60} hours`;
+  return `Every ${minutes} min`;
 }
 
 export function AppsView({
@@ -47,6 +54,8 @@ export function AppsView({
 }) {
   const [apps, setApps] = useState<AppInfo[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [scheduleBusy, setScheduleBusy] = useState<string | null>(null);
+  const [syncIntervals, setSyncIntervals] = useState<number[]>([0]);
   const [error, setError] = useState<string | null>(null);
   const [disconnect, setDisconnect] = useState<AppInfo | null>(null);
   const [deleteItems, setDeleteItems] = useState(false);
@@ -63,6 +72,7 @@ export function AppsView({
     try {
       const res = await api.apps();
       setApps(res.apps);
+      setSyncIntervals(res.sync_intervals ?? [0]);
       setError(null);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not load the App Store");
@@ -186,6 +196,21 @@ export function AppsView({
     }
   }
 
+  async function changeSchedule(app: AppInfo, minutes: number) {
+    if (!app.connection) return;
+    setScheduleBusy(app.id);
+    try {
+      await api.setConnectionSchedule(app.connection.id, minutes);
+      await load();
+      toast(minutes === 0 ? "Auto-sync off" : `Auto-sync ${scheduleLabel(minutes).toLowerCase()}`);
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : "Could not update the schedule", "error");
+      await load();
+    } finally {
+      setScheduleBusy(null);
+    }
+  }
+
   // File imports live in the Import view; the store only lists installable apps.
   const sources = apps?.filter((app) => app.auth !== "file-import") ?? [];
 
@@ -285,13 +310,40 @@ export function AppsView({
                     <span className="truncate">
                       {app.scopes.length ? app.scopes.join(", ") : "on-device · no token"}
                     </span>
-                    {app.installed ? (
-                      <>
-                        <span aria-hidden="true">·</span>
-                        <span>{cadence(app.schedule)}</span>
-                      </>
-                    ) : null}
                   </div>
+                  {app.installed && app.connection ? (
+                    <div className="mt-2 flex items-center justify-between gap-2">
+                      <span className="font-mono text-[9px] uppercase tracking-[0.14em] text-faint">
+                        Auto-sync
+                      </span>
+                      <Select
+                        value={String(app.connection.sync_interval_minutes ?? 0)}
+                        onValueChange={(value) => void changeSchedule(app, Number(value))}
+                        disabled={scheduleBusy === app.id}
+                      >
+                        <SelectTrigger
+                          aria-label={`Auto-sync schedule for ${app.name}`}
+                          className="h-6 w-auto gap-1 px-1.5 font-mono text-[10px]"
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {[
+                            ...new Set([
+                              app.connection.sync_interval_minutes ?? 0,
+                              ...syncIntervals,
+                            ]),
+                          ]
+                            .toSorted((a, b) => a - b)
+                            .map((minutes) => (
+                              <SelectItem key={minutes} value={String(minutes)}>
+                                {scheduleLabel(minutes)}
+                              </SelectItem>
+                            ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  ) : null}
                   {degraded ? (
                     <p className="mt-1 truncate font-mono text-[9.5px] text-coral">
                       {app.connection?.last_error ?? "Needs reconnect"}

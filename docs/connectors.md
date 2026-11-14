@@ -82,7 +82,8 @@ Exchange uses JSON + Basic auth (not form-encoded), so Notion is handled special
 time, then reads each page body from `GET /v1/blocks/{id}/children` and stores it as markdown (up to
 two block pages, three requests in flight, one retry on `429`). Search pages are 25 results each so a
 single run stays within Worker subrequests. There is no reliable page-content webhook, so sync is a
-15-minute cursor poll at ~3 req/s.
+cursor poll: the 15-minute cron picks up connections whose editable `sync_interval_minutes` has
+elapsed (15-minute floor, one page per run).
 
 ### GitHub
 

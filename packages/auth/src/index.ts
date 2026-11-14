@@ -22,6 +22,76 @@ export function hashOtp(secret: string, email: string, code: string): Promise<st
   return sha256Hex(`${secret}:${email.trim().toLowerCase()}:${code}`);
 }
 
+// ------------------------------------------------------------ passwords
+
+// workerd rejects PBKDF2 above 100k iterations; this is also the CPU ceiling.
+const PASSWORD_ITERATIONS = 100_000;
+const PASSWORD_SALT_BYTES = 16;
+const PASSWORD_KEY_BYTES = 32;
+
+function toBase64(bytes: Uint8Array): string {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
+function fromBase64(value: string): Uint8Array<ArrayBuffer> {
+  const binary = atob(value);
+  const bytes = new Uint8Array(new ArrayBuffer(binary.length));
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+async function derivePassword(
+  password: string,
+  salt: Uint8Array<ArrayBuffer>,
+  iterations: number,
+): Promise<Uint8Array> {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(password),
+    "PBKDF2",
+    false,
+    ["deriveBits"],
+  );
+  const bits = await crypto.subtle.deriveBits(
+    { name: "PBKDF2", salt, iterations, hash: "SHA-256" },
+    key,
+    PASSWORD_KEY_BYTES * 8,
+  );
+  return new Uint8Array(bits);
+}
+
+/** PBKDF2-SHA256 with a random salt; the parameters travel with the hash. */
+export async function hashPassword(password: string): Promise<string> {
+  const salt = crypto.getRandomValues(new Uint8Array(PASSWORD_SALT_BYTES));
+  const hash = await derivePassword(password, salt, PASSWORD_ITERATIONS);
+  return `pbkdf2$sha256$${PASSWORD_ITERATIONS}$${toBase64(salt)}$${toBase64(hash)}`;
+}
+
+export async function verifyPassword(password: string, stored: string): Promise<boolean> {
+  const [scheme, digest, iterationsRaw, saltRaw, hashRaw] = stored.split("$");
+  const iterations = Number(iterationsRaw);
+  if (
+    scheme !== "pbkdf2" ||
+    digest !== "sha256" ||
+    !saltRaw ||
+    !hashRaw ||
+    !Number.isInteger(iterations) ||
+    iterations < 100_000 ||
+    iterations > 1_000_000
+  ) {
+    return false;
+  }
+  const expected = fromBase64(hashRaw);
+  const actual = await derivePassword(password, fromBase64(saltRaw), iterations);
+  let diff = expected.length ^ actual.length;
+  for (let i = 0; i < Math.max(expected.length, actual.length); i++) {
+    diff |= (expected[i] ?? 0) ^ (actual[i] ?? 0);
+  }
+  return diff === 0;
+}
+
 export interface RequestedOtp {
   code: string;
   expiresAt: number;

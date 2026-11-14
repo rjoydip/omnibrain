@@ -37,7 +37,7 @@ all pass. The initial JS bundle must stay **≤ 200 KB gzip**; `Import`, `Apps`,
 | `packages/ui`         | shadcn-style primitives (`Button`, `Badge`, `Card`, menus, modals, tooltip) |
 | `packages/db`         | SQL repo, migrations (`packages/db/migrations`), sqlite/D1 adapters         |
 | `packages/core`       | schemas, entitlements/plans, ids, errors                                    |
-| `packages/auth`       | OTP + opaque session tokens                                                 |
+| `packages/auth`       | passwords, OTP + opaque session tokens                                      |
 | `packages/search`     | hybrid ranking, URL canonicalization, intent detection                      |
 | `packages/connectors` | provider registry and the bookmark file importer                            |
 | `packages/ai`         | Workers AI embeddings/summaries                                             |
@@ -51,9 +51,10 @@ all pass. The initial JS bundle must stay **≤ 200 KB gzip**; `Import`, `Apps`,
   `packages/db/migrations`; dev startup applies migrations idempotently.
 - **Entitlements are server-side.** Use `checkEntitlement` + `planUsage` for quota actions (items,
   enrichments, MCP calls, connections, API keys). The UI only reflects limits.
-- **Auth:** email OTP and opaque hashed session tokens (no third-party auth). Dev returns `dev_code`;
-  production sends via Cloudflare Email Service (`EMAIL` binding), with a durable 60-second resend
-  cooldown per address. API keys are hashed at rest and shown once.
+- **Auth:** email + password is the default, with PBKDF2 hashes and opaque hashed session tokens (no
+  third-party auth). Email OTP is behind `AUTH_OTP_ENABLED`; when on, production sends via Cloudflare
+  Email Service (`EMAIL` binding) with a durable 60-second resend cooldown per address. Dev returns
+  `dev_code`. API keys are hashed at rest and shown once.
 - **Browser writes are guarded.** Mutating `/api/v1` requests need the `x-csrf-token` header that
   `lib/api.ts` reads from the `omnibrain_csrf` cookie; CORS allows it. Writes are rate-limited per
   workspace+user. Do not add a mutation that bypasses `api.ts`.
@@ -87,7 +88,8 @@ all pass. The initial JS bundle must stay **≤ 200 KB gzip**; `Import`, `Apps`,
 
 ## Local dev notes
 
-- Demo login: `demo@omnibrain.local`; the OTP is printed in the API terminal and returned as `dev_code`.
+- Demo login: `demo@omnibrain.local`; dev enables OTP by default and prints the code (also `dev_code`).
+  Set `AUTH_OTP_ENABLED=0` to test password-only locally.
 - Dev DB is `.data/dev.db`; it starts empty and only holds what you add. Don't wipe user data.
 - Dev servers may already be running; don't kill them unless a port conflict requires it.
 - Test data created during verification must be cleaned up (items, keys, connections, imports).

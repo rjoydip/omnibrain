@@ -33,11 +33,15 @@ export default Alchemy.Stack(
     const api = yield* Cloudflare.Worker("Api", {
       name: "omnibrain-api",
       main: "./apps/api/src/worker.ts",
+      // Due connections are picked up from their stored interval; 15m is the floor.
+      crons: ["*/15 * * * *"],
       env: {
         DB: db,
         BLOBS: blobs,
         VECTORS: vectors,
         AUTH_SECRET: authSecret,
+        // Off by default: email OTP needs a domain onboarded to Cloudflare Email Service.
+        AUTH_OTP_ENABLED: process.env.AUTH_OTP_ENABLED || "",
         TOKEN_KEY: process.env.TOKEN_KEY ?? authSecret,
         APP_ORIGIN: appOrigin,
         NOTION_CLIENT_ID: process.env.NOTION_CLIENT_ID ?? "",

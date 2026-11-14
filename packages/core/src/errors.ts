@@ -9,6 +9,8 @@ export type ErrorCode =
   | "connector_not_configured"
   | "email_not_configured"
   | "email_failed"
+  | "email_taken"
+  | "otp_disabled"
   | "internal";
 
 export class AppError extends Error {

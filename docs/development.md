@@ -19,8 +19,9 @@ bun run dev
 | API     | http://localhost:8787        | `Bun.serve`, local SQLite                |
 | Health  | http://localhost:8787/health | No auth                                  |
 
-Demo login: `demo@omnibrain.local`. The OTP is printed in the API terminal and returned as
-`dev_code`; the UI shows a "dev mode" chip that fills it in.
+Sign up with any email + password, or use the demo account `demo@omnibrain.local`. Dev enables email
+OTP by default: the code is printed in the API terminal and returned as `dev_code` (the UI shows a
+chip that fills it in). Set `AUTH_OTP_ENABLED=0` to test the password-only flow.
 
 `bun run dev` starts both processes from the repo root, so the API watcher sees `packages/*`
 changes (no "not in the project directory" warnings). To run them separately:

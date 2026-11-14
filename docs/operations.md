@@ -11,8 +11,9 @@
 | `APP_ORIGIN`              | auto (prod)   | Web origin for CORS, cookies, OAuth redirects                           |
 | `NOTION_CLIENT_ID/SECRET` | optional      | OAuth app; enables one-click Notion sign-in                             |
 | `GH_CLIENT_ID/SECRET`     | optional      | OAuth app; not needed when using a personal access token                |
-| `EMAIL_FROM`              | yes (prod)    | Sender on a domain onboarded to Cloudflare Email Service                |
-| `EMAIL` (binding)         | yes in prod   | `send_email` binding provisioned by `alchemy.run.ts`                    |
+| `AUTH_OTP_ENABLED`        | optional      | `1` enables email-code sign-in; off by default                          |
+| `EMAIL_FROM`              | with OTP      | Sender on a domain onboarded to Cloudflare Email Service                |
+| `EMAIL` (binding)         | with OTP      | `send_email` binding provisioned by `alchemy.run.ts`                    |
 | `DEV_MODE`                | never in prod | Returns the OTP to the dev UI; dev server sets it                       |
 
 Generate secrets with `openssl rand -base64 32` or `bun -e 'console.log(crypto.randomUUID())'`
@@ -47,6 +48,37 @@ Notes:
 - The same token works locally (`.env`) and in CI (`CLOUDFLARE_API_TOKEN` secret). Prefer separate
   tokens per environment if you want independent revocation.
 
+## Email OTP
+
+Password sign-up and sign-in are always available. Email OTP is a feature flag
+(`AUTH_OTP_ENABLED`) so a deployment can launch without Workers Paid or a verified sending domain.
+When the flag is on, the sign-in screen keeps password auth and adds **Use a one-time email code**.
+Local dev enables this path by default; production is opt-in and stays off unless the flag is set.
+
+Enable it:
+
+1. Cloudflare dashboard → **Compute → Email Service → Email Sending** → onboard the domain
+   (SPF/DKIM/`cf-bounce` records are added automatically). Workers Paid is required.
+2. Set the sender to a verified address on that domain:
+
+   ```bash
+   gh variable set EMAIL_FROM --body "OmniBrain <no-reply@yourdomain>"
+   ```
+
+3. Turn the flag on and redeploy:
+
+   ```bash
+   gh variable set AUTH_OTP_ENABLED --body "1"
+   ```
+
+Without the domain onboarding, `send_email` fails with `E_SENDER_NOT_VERIFIED` /
+`E_SENDER_DOMAIN_NOT_AVAILABLE`; the API returns `email_failed` ("Could not send the code. Try
+again in a moment.") and Worker logs include the Cloudflare error code. There is no usable shared
+default sender.
+
+Local dev defaults `AUTH_OTP_ENABLED=1` and prints the code (also returned as `dev_code`). Set
+`AUTH_OTP_ENABLED=0` to exercise the password-only flow locally.
+
 ## First deploy
 
 1. Authenticate Alchemy once:
@@ -57,11 +89,8 @@ Notes:
 
 2. Copy `.env.example` to `.env` and fill production values. `AUTH_SECRET`,
    `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` are mandatory; `alchemy.run.ts` refuses to
-   plan without `AUTH_SECRET`. Onboard the `EMAIL_FROM` sending domain under **Compute → Email
-   Service → Email Sending** first (Email Sending requires the Workers Paid plan). Without it
-   `send_email` fails with `E_SENDER_NOT_VERIFIED` / `E_SENDER_DOMAIN_NOT_AVAILABLE`, and login
-   returns `email_failed` ("Could not send the code. Try again in a moment"). There is no usable
-   shared default sender.
+   plan without `AUTH_SECRET`. Email OTP is optional — see [Email OTP](#email-otp) — and password
+   sign-in works without any email setup.
 3. Deploy:
 
    ```bash
@@ -79,7 +108,7 @@ Notes:
 
 4. Verify:
    - `GET https://<api>/health` returns `{ ok: true }`.
-   - Sign in via OTP; `/api/v1/account` returns the demo workspace.
+   - Create an account with email + password; `/api/v1/account` returns the new workspace.
    - Confirm the OTP email arrives through Cloudflare Email Service and `EMAIL_FROM` is a verified
      sender. A missing `EMAIL` binding returns `503 email_not_configured`.
    - Capture a URL; confirm `embedding_state` moves from `pending` to `ready` (or `skipped` without

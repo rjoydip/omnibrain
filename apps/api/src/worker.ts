@@ -1,6 +1,15 @@
-import { deleteExpiredSessions, forWorkspace, listWorkspaceIds, purgeCache } from "@omnibrain/db";
+import { canSyncInterval, type PlanId } from "@omnibrain/core";
+import {
+  deleteExpiredSessions,
+  forWorkspace,
+  getWorkspace,
+  listDueConnections,
+  listWorkspaceIds,
+  purgeCache,
+} from "@omnibrain/db";
 import { createApp } from "./app";
 import { dbOf, type Env } from "./env";
+import { syncConnection } from "./services/connectors";
 import { enrichItem } from "./services/enrich";
 
 const app = createApp();
@@ -26,6 +35,27 @@ async function cleanup(env: Env) {
   }
 }
 
+/** One page per connection per tick keeps cron CPU and subrequests bounded. */
+async function syncDueConnections(env: Env) {
+  const db = dbOf(env);
+  const due = await listDueConnections(db, Date.now(), 5);
+  const allowed: typeof due = [];
+  for (const connection of due) {
+    const workspace = await getWorkspace(db, connection.workspace_id);
+    if (workspace && canSyncInterval(workspace.plan as PlanId, connection.sync_interval_minutes)) {
+      allowed.push(connection);
+    }
+  }
+  const results = await Promise.allSettled(
+    allowed.map((connection) => syncConnection(env, connection.workspace_id, connection, 1)),
+  );
+  for (const result of results) {
+    if (result.status === "rejected") {
+      console.error("scheduled sync failed", String(result.reason).slice(0, 300));
+    }
+  }
+}
+
 export default {
   fetch: app.fetch,
 
@@ -45,6 +75,6 @@ export default {
   },
 
   async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
-    ctx.waitUntil(cleanup(env));
+    ctx.waitUntil(Promise.all([cleanup(env), syncDueConnections(env)]));
   },
 };
