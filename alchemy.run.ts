@@ -31,6 +31,7 @@ export default Alchemy.Stack(
     const email = yield* Cloudflare.Email.SendEmail("Email");
 
     const api = yield* Cloudflare.Worker("Api", {
+      name: "omnibrain-api",
       main: "./apps/api/src/worker.ts",
       env: {
         DB: db,
