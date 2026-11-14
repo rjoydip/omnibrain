@@ -2,7 +2,7 @@ name: Deploy
 
 on:
   push:
-    branches: [main]
+    branches: [main, fix/deploy-effect-platform-node]
   workflow_dispatch:
 
 jobs:
