@@ -6,7 +6,9 @@
 | ------------------------- | ------------- | ----------------------------------------------------------- |
 | `AUTH_SECRET`             | yes           | OTP pepper + session/signing fallback; 32+ random chars     |
 | `TOKEN_KEY`               | recommended   | AES-GCM key for connector tokens; defaults to `AUTH_SECRET` |
-| `APP_ORIGIN`              | yes (prod)    | Web origin for CORS, cookies, OAuth redirects               |
+| `CLOUDFLARE_ACCOUNT_ID`   | yes (deploy)  | Account for Alchemy/Cloudflare API calls                    |
+| `CLOUDFLARE_API_TOKEN`    | yes (deploy)  | Token with Workers/D1/R2/Vectorize/KV edit access           |
+| `APP_ORIGIN`              | auto (prod)   | Web origin for CORS, cookies, OAuth redirects               |
 | `NOTION_CLIENT_ID/SECRET` | optional      | OAuth app; enables one-click Notion sign-in                 |
 | `GH_CLIENT_ID/SECRET`     | optional      | OAuth app; not needed when using a personal access token    |
 | `EMAIL_FROM`              | recommended   | Verified sender for Cloudflare Email Service                |
@@ -24,17 +26,24 @@ Generate secrets with `openssl rand -base64 32` or `bun -e 'console.log(crypto.r
    bun alchemy profile edit --add Cloudflare
    ```
 
-2. Copy `.env.example` to `.env` and fill production values. `AUTH_SECRET` is mandatory;
-   `alchemy.run.ts` refuses to plan without it. Verify the `EMAIL_FROM` sender domain/address in
-   Cloudflare Email Service (Email Sending requires the Workers Paid plan).
+2. Copy `.env.example` to `.env` and fill production values. `AUTH_SECRET`,
+   `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` are mandatory; `alchemy.run.ts` refuses to
+   plan without `AUTH_SECRET`. Verify the `EMAIL_FROM` sender domain/address in Cloudflare Email
+   Service (Email Sending requires the Workers Paid plan).
 3. Deploy:
 
    ```bash
-   APP_ORIGIN=https://app.example.com bun alchemy deploy --stage prod
+   bun alchemy deploy --stage prod
    ```
 
    Alchemy provisions D1 (applies `packages/db/migrations`), R2, the Vectorize index (1024 dims,
    cosine), the API Worker and the Vite site.
+
+   The site URL does not exist before the first deploy, so `APP_ORIGIN` initially falls back to
+   `http://localhost:5173`. Pushes to `main` handle this automatically: after the deploy, the
+   workflow reads `webUrl` from the deploy output and re-applies it as the API Worker's
+   `APP_ORIGIN`. For local deploys, set `APP_ORIGIN` to the printed `webUrl` and deploy once more,
+   or set the `APP_ORIGIN` repository variable to skip the second pass.
 
 4. Verify:
    - `GET https://<api>/health` returns `{ ok: true }`.

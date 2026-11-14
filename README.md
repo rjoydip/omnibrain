@@ -81,12 +81,12 @@ Honest list, matching PLAN §19:
 ## Deploy (Alchemy)
 
 ```bash
-cp .env.example .env            # fill AUTH_SECRET and APP_ORIGIN
+cp .env.example .env            # fill AUTH_SECRET and Cloudflare credentials
 bun alchemy profile edit --add Cloudflare
-AUTH_SECRET=... APP_ORIGIN=https://app.example.com bun alchemy deploy --stage prod
+bun alchemy deploy --stage prod
 ```
 
-`alchemy.run.ts` provisions D1 (with migrations), R2, the Vectorize index (1024 dims, cosine), the API Worker, and the Vite site. The web bundle receives `VITE_API_URL` at build time. Cross-site cookies use `SameSite=None` over HTTPS; set `APP_ORIGIN` to the web origin.
+`alchemy.run.ts` provisions D1 (with migrations), R2, the Vectorize index (1024 dims, cosine), the API Worker, and the Vite site. The web bundle receives `VITE_API_URL` at build time. Cross-site cookies use `SameSite=None` over HTTPS; `APP_ORIGIN` is the web origin, which CI derives from the deployed site URL on each push.
 
 Connector OAuth apps need these redirect URIs:
 

@@ -9,6 +9,19 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     environment: production
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      AUTH_SECRET: ${{ secrets.AUTH_SECRET }}
+      TOKEN_KEY: ${{ secrets.TOKEN_KEY }}
+      APP_ORIGIN: ${{ vars.APP_ORIGIN }}
+      NOTION_CLIENT_ID: ${{ secrets.NOTION_CLIENT_ID }}
+      NOTION_CLIENT_SECRET: ${{ secrets.NOTION_CLIENT_SECRET }}
+      X_CLIENT_ID: ${{ secrets.X_CLIENT_ID }}
+      X_CLIENT_SECRET: ${{ secrets.X_CLIENT_SECRET }}
+      RAINDROP_CLIENT_ID: ${{ secrets.RAINDROP_CLIENT_ID }}
+      RAINDROP_CLIENT_SECRET: ${{ secrets.RAINDROP_CLIENT_SECRET }}
+      EMAIL_FROM: ${{ vars.EMAIL_FROM }}
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -20,17 +33,26 @@ jobs:
       - run: bun test
       - run: bun run build
       - name: Deploy production
-        run: bun alchemy deploy --stage prod
+        run: |
+          set -o pipefail
+          bun alchemy deploy --stage prod --yes --no-input 2>&1 | tee deploy.log
+      # The web URL is not known until the site exists, so on the first deploy
+      # the API gets the localhost fallback. Derive the real origin from the
+      # deployed outputs and re-apply so the API Worker gets it.
+      - name: Resolve web origin
+        id: origin
+        if: ${{ vars.APP_ORIGIN == '' }}
+        run: |
+          WEB_URL=$(sed -E 's/\x1b\[[0-9;]*m//g' deploy.log \
+            | grep -oE "webUrl: 'https?://[^']+'" | tail -1 \
+            | sed -E "s/.*'(.*)'/\1/")
+          if [ -z "$WEB_URL" ]; then
+            echo "::error::Could not read webUrl from deploy output. Set the APP_ORIGIN repository variable to the deployed web URL."
+            exit 1
+          fi
+          echo "web_url=$WEB_URL" >> "$GITHUB_OUTPUT"
+      - name: Set APP_ORIGIN on API Worker
+        if: ${{ vars.APP_ORIGIN == '' }}
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          AUTH_SECRET: ${{ secrets.AUTH_SECRET }}
-          TOKEN_KEY: ${{ secrets.TOKEN_KEY }}
-          APP_ORIGIN: ${{ vars.APP_ORIGIN }}
-          NOTION_CLIENT_ID: ${{ secrets.NOTION_CLIENT_ID }}
-          NOTION_CLIENT_SECRET: ${{ secrets.NOTION_CLIENT_SECRET }}
-          X_CLIENT_ID: ${{ secrets.X_CLIENT_ID }}
-          X_CLIENT_SECRET: ${{ secrets.X_CLIENT_SECRET }}
-          RAINDROP_CLIENT_ID: ${{ secrets.RAINDROP_CLIENT_ID }}
-          RAINDROP_CLIENT_SECRET: ${{ secrets.RAINDROP_CLIENT_SECRET }}
-          EMAIL_FROM: ${{ vars.EMAIL_FROM }}
+          APP_ORIGIN: ${{ steps.origin.outputs.web_url }}
+        run: bun alchemy deploy --stage prod --yes --no-input

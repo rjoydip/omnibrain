@@ -17,7 +17,8 @@ export default Alchemy.Stack(
     if (!authSecret) {
       throw new Error("AUTH_SECRET is required to deploy (32+ random characters)");
     }
-    const appOrigin = process.env.APP_ORIGIN ?? "http://localhost:5173";
+    // Empty string is what an unset GitHub Actions variable produces; treat it as unset.
+    const appOrigin = process.env.APP_ORIGIN || "http://localhost:5173";
 
     const db = yield* Cloudflare.D1.Database("Db", {
       migrations: "./packages/db/migrations",
