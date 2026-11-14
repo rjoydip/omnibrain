@@ -23,19 +23,22 @@ Generate secrets with `openssl rand -base64 32` or `bun -e 'console.log(crypto.r
 Create a token under **My Profile → API Tokens → Create Token → Custom token**, scoped to
 **Account resources → Include → \<your account\>**. Alchemy needs only these account permissions:
 
-| Permission                | Why                                                     |
-| ------------------------- | ------------------------------------------------------- |
-| `Workers Scripts:Edit`    | API Worker, Vite site, and Alchemy's state-store Worker |
-| `D1:Edit`                 | create the database and apply `packages/db/migrations`  |
-| `Workers R2 Storage:Edit` | create the blobs bucket                                 |
-| `Vectorize:Edit`          | create the 1024-dim cosine index                        |
-| `Secrets Store:Edit`      | store the Alchemy state-store encryption key            |
-| `Account Settings:Read`   | resolve the account and its `workers.dev` subdomain     |
+| Permission                | Why                                                         |
+| ------------------------- | ----------------------------------------------------------- |
+| `Workers Admin`           | create/deploy the API Worker, Vite site, state-store Worker |
+| `D1:Edit`                 | create the database and apply `packages/db/migrations`      |
+| `Workers R2 Storage:Edit` | create the blobs bucket                                     |
+| `Vectorize:Edit`          | create the 1024-dim cosine index                            |
+| `Secrets Store:Edit`      | store the Alchemy state-store encryption key                |
+| `Account Settings:Read`   | resolve the account and its `workers.dev` subdomain         |
 
 Notes:
 
-- `Workers Scripts:Edit` must allow create/delete, not just update; newer dashboards label the
-  same permission group `Workers Admin`.
+- `Workers Admin` is the full Workers group; on older dashboards it is labelled
+  `Workers Scripts:Edit`. `Workers Editor` and `Workers Scripts:Read` are **not** enough: the first
+  deploy creates Workers and fails with `Forbidden: No access to the specified resource`.
+- If `[Api]` / `[Web]` fail with that message while D1/R2/Vectorize create fine, the Workers
+  permission is the missing one — reissue the token with `Workers Admin`.
 - No zone permissions are required. Add `Zone:Workers Routes:Edit` and `Zone:DNS:Edit` only if you
   attach a custom domain instead of the `workers.dev` URL.
 - `Email Sending` is not required: `Email.SendEmail` is a bind-only descriptor, so sending uses the
