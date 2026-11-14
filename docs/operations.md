@@ -11,7 +11,7 @@
 | `APP_ORIGIN`              | auto (prod)   | Web origin for CORS, cookies, OAuth redirects                           |
 | `NOTION_CLIENT_ID/SECRET` | optional      | OAuth app; enables one-click Notion sign-in                             |
 | `GH_CLIENT_ID/SECRET`     | optional      | OAuth app; not needed when using a personal access token                |
-| `EMAIL_FROM`              | recommended   | Verified sender for Cloudflare Email Service                            |
+| `EMAIL_FROM`              | yes (prod)    | Sender on a domain onboarded to Cloudflare Email Service                |
 | `EMAIL` (binding)         | yes in prod   | `send_email` binding provisioned by `alchemy.run.ts`                    |
 | `DEV_MODE`                | never in prod | Returns the OTP to the dev UI; dev server sets it                       |
 
@@ -57,8 +57,11 @@ Notes:
 
 2. Copy `.env.example` to `.env` and fill production values. `AUTH_SECRET`,
    `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` are mandatory; `alchemy.run.ts` refuses to
-   plan without `AUTH_SECRET`. Verify the `EMAIL_FROM` sender domain/address in Cloudflare Email
-   Service (Email Sending requires the Workers Paid plan).
+   plan without `AUTH_SECRET`. Onboard the `EMAIL_FROM` sending domain under **Compute → Email
+   Service → Email Sending** first (Email Sending requires the Workers Paid plan). Without it
+   `send_email` fails with `E_SENDER_NOT_VERIFIED` / `E_SENDER_DOMAIN_NOT_AVAILABLE`, and login
+   returns `email_failed` ("Could not send the code. Try again in a moment"). There is no usable
+   shared default sender.
 3. Deploy:
 
    ```bash

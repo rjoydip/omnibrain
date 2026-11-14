@@ -45,7 +45,8 @@ export default Alchemy.Stack(
         GH_CLIENT_ID: process.env.GH_CLIENT_ID ?? "",
         GH_CLIENT_SECRET: process.env.GH_CLIENT_SECRET ?? "",
         EMAIL: email,
-        EMAIL_FROM: process.env.EMAIL_FROM ?? "OmniBrain <no-reply@omnibrain.ai>",
+        // Must be an address on a domain onboarded to Cloudflare Email Service.
+        EMAIL_FROM: process.env.EMAIL_FROM || "",
       },
     });
 
