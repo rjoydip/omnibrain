@@ -18,6 +18,8 @@ jobs:
       APP_ORIGIN: ${{ vars.APP_ORIGIN }}
       NOTION_CLIENT_ID: ${{ secrets.NOTION_CLIENT_ID }}
       NOTION_CLIENT_SECRET: ${{ secrets.NOTION_CLIENT_SECRET }}
+      GH_CLIENT_ID: ${{ secrets.GH_CLIENT_ID }}
+      GH_CLIENT_SECRET: ${{ secrets.GH_CLIENT_SECRET }}
       X_CLIENT_ID: ${{ secrets.X_CLIENT_ID }}
       X_CLIENT_SECRET: ${{ secrets.X_CLIENT_SECRET }}
       RAINDROP_CLIENT_ID: ${{ secrets.RAINDROP_CLIENT_ID }}
