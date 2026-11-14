@@ -69,13 +69,15 @@ and never returned by an API; the secret is only decrypted inside the token exch
 ### Notion
 
 1. Open <https://www.notion.so/my-integrations> and create a **new integration**.
-2. Choose type **Public** (OAuth), name it, and pick the workspace it belongs to.
-3. Under **OAuth Domain & URIs**, add both redirect URIs above.
+2. Choose type **Public** for OAuth, or **Internal** for a personal access token.
+3. OAuth: under **OAuth Domain & URIs**, add both redirect URIs above. PAT: skip this step.
 4. Capabilities: enable **Read content** — that is the `read_content` scope this connector requests.
-5. Copy the **OAuth client ID** and **OAuth client secret** from the integration's configuration.
-6. Set `NOTION_CLIENT_ID` / `NOTION_CLIENT_SECRET` in `.env` and restart.
-7. After connecting, each page or database must be **shared with the integration** in Notion; the
+5. OAuth: copy the **OAuth client ID** and **OAuth client secret** into `NOTION_CLIENT_ID` /
+   `NOTION_CLIENT_SECRET` in `.env` and restart. PAT: copy the **internal integration token** and
+   paste it in the App Store; no env vars are needed.
+6. After connecting, each page or database must be **shared with the integration** in Notion; the
    integration only sees what is explicitly shared.
+7. Pasted tokens are verified with `GET /v1/users/me` before they are encrypted and stored.
 
 Exchange uses JSON + Basic auth (not form-encoded), so Notion is handled specially in
 `packages/connectors`. The adapter enumerates pages through `POST /v1/search` sorted by last edited

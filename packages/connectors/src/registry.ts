@@ -18,9 +18,11 @@ export const APP_CATALOG: ConnectorManifest[] = [
     id: "notion",
     name: "Notion",
     category: "Knowledge hub",
-    description: "Pages your integration can access, kept fresh by a 15-minute cursor sync.",
+    description:
+      "Pages your integration can access, synced incrementally. Connect with OAuth or paste an internal integration token.",
     status: "beta",
     auth: "oauth2",
+    tokenAuth: true,
     scopes: ["read_content"],
     capabilities: ["import", "incremental", "revoke"],
     schedule: "*/15 * * * *",

@@ -266,6 +266,13 @@ export const LockIcon = (p: IconProps) => (
   </Icon>
 );
 
+export const KeyIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <circle cx="8" cy="15" r="4" />
+    <path d="M11 12l8-8M16 4l3.5 3.5M13.5 6.5L16 9" />
+  </Icon>
+);
+
 export const SunIcon = (p: IconProps) => (
   <Icon {...p}>
     <circle cx="12" cy="12" r="4" />

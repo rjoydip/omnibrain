@@ -19,12 +19,12 @@ import {
 import { useCallback, useEffect, useState } from "react";
 import { BrandLogo } from "../components/BrandLogo";
 import {
+  GlobeIcon,
+  KeyIcon,
   LockIcon,
   PauseIcon,
   PlayIcon,
-  PlusIcon,
   RefreshIcon,
-  SignInIcon,
   TrashIcon,
 } from "../components/icons";
 import { ApiError, type AppInfo, api } from "../lib/api";
@@ -412,27 +412,56 @@ export function AppsView({
                     </>
                   ) : (
                     <>
-                      <Tooltip label={installLabel}>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon-sm"
-                          className="text-accent"
-                          onClick={() => void install(app)}
-                          disabled={busy === app.id}
-                          aria-label={installLabel}
-                        >
-                          {busy === app.id ? (
-                            <Spinner className="size-3" />
-                          ) : app.configured ? (
-                            <SignInIcon size={13} />
-                          ) : app.token_auth ? (
-                            <PlusIcon size={13} />
-                          ) : (
+                      {app.configured ? (
+                        <Tooltip label={installLabel}>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="gap-1.5 px-2 text-[11px] text-accent"
+                            onClick={() => void install(app)}
+                            disabled={busy === app.id}
+                            aria-label={installLabel}
+                          >
+                            {busy === app.id ? (
+                              <Spinner className="size-3" />
+                            ) : (
+                              <GlobeIcon size={13} />
+                            )}
+                            OAuth
+                          </Button>
+                        </Tooltip>
+                      ) : null}
+                      {app.token_auth ? (
+                        <Tooltip label={`Connect ${app.name} with a personal access token`}>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="gap-1.5 px-2 text-[11px] text-muted"
+                            onClick={() => openToken(app)}
+                            disabled={busy === app.id}
+                            aria-label={`Connect ${app.name} with a personal access token`}
+                          >
+                            <KeyIcon size={13} />
+                            PAT
+                          </Button>
+                        </Tooltip>
+                      ) : null}
+                      {!app.configured && !app.token_auth ? (
+                        <Tooltip label={installLabel}>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-sm"
+                            className="text-faint"
+                            onClick={() => void install(app)}
+                            aria-label={installLabel}
+                          >
                             <LockIcon size={12} />
-                          )}
-                        </Button>
-                      </Tooltip>
+                          </Button>
+                        </Tooltip>
+                      ) : null}
                     </>
                   )}
                 </CardFooter>
@@ -454,7 +483,11 @@ export function AppsView({
         <Input
           value={token}
           onChange={(e) => setToken(e.target.value)}
-          placeholder="Personal access token"
+          placeholder={
+            tokenApp?.id === "notion"
+              ? "Internal integration token (secret_…)"
+              : "Personal access token"
+          }
           aria-label="Personal access token"
           type="password"
           autoComplete="off"
