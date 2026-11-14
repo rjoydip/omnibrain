@@ -55,8 +55,8 @@ Generate secrets with `openssl rand -base64 32` or `bun -e 'console.log(crypto.r
 ## No preview Worker
 
 There is no PR preview deployment. CI runs format, typecheck, lint, tests and the web build. Prod
-deploys on a `v*` tag through `.github/workflows/deploy.yml`. Preview-specific stages, URLs and
-workflows were removed deliberately.
+deploys on every push to `main` through `.github/workflows/deploy.yml`. Preview-specific stages, URLs
+and workflows were removed deliberately.
 
 ## Migrations
 
@@ -70,7 +70,7 @@ workflows were removed deliberately.
 
 Alchemy is declarative. To roll back:
 
-1. Redeploy the previous git tag: `git checkout v1.2.0 && bun alchemy deploy --stage prod`.
+1. Redeploy the previous commit: `git checkout <previous-sha> && bun alchemy deploy --stage prod`.
 2. Do not revert a migration in the same release. Data written by the newer code must remain
    readable.
 3. If a bad migration removed data, restore from the D1 export (below) into a new database and

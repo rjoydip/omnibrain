@@ -95,8 +95,8 @@ type-aware linting only if a class of bug repeatedly escapes both.
 
 ## ADR-12: No preview Worker stage
 
-**Decision:** CI runs format, typecheck, lint, tests and the web build on PRs. Only tagged commits
-deploy (`--stage prod`). The PR preview workflow and the Vite `preview` script were removed.
+**Decision:** CI runs format, typecheck, lint, tests and the web build on PRs. Every push to `main`
+deploys (`--stage prod`). The PR preview workflow and the Vite `preview` script were removed.
 
 **Why:** a preview Worker duplicates the resource graph, needs synthetic data, and doubles the
 surface that can drift. The Bun dev server plus tests cover review needs.
