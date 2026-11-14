@@ -46,6 +46,24 @@ describe("email delivery", () => {
     expect(message?.html).toContain("654321");
   });
 
+  test("does not send without a configured sender", async () => {
+    let called = false;
+    const ok = await sendOtpEmail(
+      env({
+        EMAIL: {
+          send: async () => {
+            called = true;
+            return { messageId: "email_1" };
+          },
+        },
+      }),
+      "a@example.com",
+      "111111",
+    );
+    expect(ok).toBe(false);
+    expect(called).toBe(false);
+  });
+
   test("reports binding failure", async () => {
     const ok = await sendOtpEmail(
       env({
@@ -54,6 +72,7 @@ describe("email delivery", () => {
             throw new Error("provider down");
           },
         },
+        EMAIL_FROM: "OmniBrain <login@example.com>",
       }),
       "a@example.com",
       "111111",

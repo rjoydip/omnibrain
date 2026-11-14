@@ -510,10 +510,10 @@ export function TopBar({
           size="sm"
           onClick={onRecall}
           className="gap-2 bg-panel text-muted sm:w-56 sm:justify-start"
-          aria-label="Open recall search"
+          aria-label="Search your knowledge"
         >
           <SearchIcon size={13} />
-          <span className="hidden sm:inline">Recall</span>
+          <span className="hidden truncate text-faint sm:inline">Search knowledge…</span>
           <span className="kbd ml-0.5 hidden sm:ml-auto sm:inline">⌘K</span>
         </Button>
 

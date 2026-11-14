@@ -133,6 +133,9 @@ export default function App() {
   const refreshAbort = useRef<AbortController | null>(null);
   const lastStatus = useRef<ItemStatus>(itemStatus);
   const urlSynced = useRef(false);
+  // Only carry layout in the URL when it came from a link or an explicit toggle;
+  // a stored preference must not rewrite a clean root URL on every visit.
+  const layoutInUrl = useRef(urlParams().has("layout"));
 
   const toast = useCallback((message: string, tone: "ok" | "error" = "ok") => {
     if (tone === "error") {
@@ -175,7 +178,7 @@ export default function App() {
     if (view !== "knowledge") params.set("view", view);
     if (itemStatus !== "active") params.set("status", itemStatus);
     if (sourceFilter !== "all") params.set("source", sourceFilter);
-    if (itemLayout !== "grid") params.set("layout", itemLayout);
+    if (layoutInUrl.current && itemLayout !== "grid") params.set("layout", itemLayout);
     if (atlasFilter) {
       params.set("fstart", String(atlasFilter.start));
       params.set("fend", String(atlasFilter.end));
@@ -201,13 +204,19 @@ export default function App() {
       const nextStatus = params.get("status");
       setItemStatus(STATUSES.has(nextStatus as ItemStatus) ? (nextStatus as ItemStatus) : "active");
       setSourceFilter(params.get("source") ?? "all");
-      const nextLayout = params.get("layout");
+      layoutInUrl.current = params.has("layout");
+      const nextLayout = params.get("layout") ?? localStorage.getItem("omnibrain.itemLayout.v3");
       setItemLayout(LAYOUTS.has(nextLayout as ItemLayout) ? (nextLayout as ItemLayout) : "grid");
       setAtlasFilter(readFilter(params));
       setSelectedId(null);
     };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
+  const changeLayout = useCallback((next: ItemLayout) => {
+    layoutInUrl.current = true;
+    setItemLayout(next);
   }, []);
 
   const navigate = useCallback(
@@ -639,7 +648,7 @@ export default function App() {
                     onPurge={purgeOnly}
                     status={itemStatus}
                     layout={itemLayout}
-                    onLayout={setItemLayout}
+                    onLayout={changeLayout}
                     allSources={knownSources}
                     onOpenRecall={() => openRecall("")}
                     onNavigateImport={() => navigate("import")}

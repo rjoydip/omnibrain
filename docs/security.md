@@ -15,9 +15,14 @@ tenant check, or all three.
 
 ## Authentication and sessions
 
-- OTP codes are six digits, expire in 10 minutes, are stored as `sha256(AUTH_SECRET:email:code)`, and
-  lock after five wrong attempts. Requests are rate-limited per IP and email, plus a durable
-  60-second resend cooldown per address.
+- Passwords are PBKDF2-SHA256 (100k iterations — workerd's cap — random 16-byte salt, 32-byte key)
+  and stored only as `pbkdf2$sha256$...` in `users.password_hash`. Login and sign-up are
+  rate-limited per IP and return generic `401` errors that do not reveal whether an address is
+  registered. Hashing costs ~50 ms of CPU, so password auth needs the Workers Paid plan (Free caps
+  CPU at 10 ms); it is not weakened to fit the free tier.
+- OTP codes are optional (`AUTH_OTP_ENABLED`): six digits, expire in 10 minutes, stored as
+  `sha256(AUTH_SECRET:email:code)`, and lock after five wrong attempts. Requests are rate-limited per
+  IP and email, plus a durable 60-second resend cooldown per address.
 - Session tokens are 256-bit random values. Only `sha256(token)` is stored in D1; the cookie holds
   the raw value with `HttpOnly`, `SameSite=Lax` (dev) / `SameSite=None; Secure` (cross-site HTTPS),
   and a 30-day expiry.

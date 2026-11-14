@@ -128,3 +128,19 @@ the cooldown hold across isolates instead of resetting per isolate.
 
 **Ceiling:** arbitrary-recipient sending needs the Workers Paid plan and a verified sender. Move to a
 queue if OTP volume ever competes with request CPU.
+
+## ADR-15: Password auth first, email OTP behind a flag
+
+**Decision:** ship email + password sign-up/sign-in as the default (`users.password_hash`,
+PBKDF2-SHA256 100k — workerd's cap — random salt). Keep email OTP in the same auth module and UI,
+gated by `AUTH_OTP_ENABLED`; it needs a domain onboarded to Cloudflare Email Service and Workers
+Paid.
+
+**Why:** the app must launch without a paid email setup or a verified sender domain. Password auth
+uses only D1 and WebCrypto, so it has no external dependency; OTP turns on later without a migration
+of the auth surface.
+
+**Ceiling:** no password reset, email verification, or change-password flow yet. Add reset via the
+verified OTP path once Email Service is on; the hash format is versioned (`pbkdf2$sha256$…`) so
+parameters can change without a schema migration. Password hashing exceeds the Workers Free 10 ms
+CPU limit, so password auth requires Workers Paid; do not lower iterations to fit Free.

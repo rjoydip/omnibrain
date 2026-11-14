@@ -1,17 +1,32 @@
 import {
   canRequestOtp,
+  hashPassword,
   issueSession,
   requestOtp,
   resolveSession,
   SESSION_COOKIE,
   SESSION_TTL_MS,
   verifyOtp,
+  verifyPassword,
 } from "@omnibrain/auth";
-import { AppError, RequestOtpSchema, VerifyOtpSchema } from "@omnibrain/core";
-import { bootstrapUser, consumeOtp, forWorkspace, listWorkspaces } from "@omnibrain/db";
+import {
+  AppError,
+  LoginSchema,
+  RequestOtpSchema,
+  SignupSchema,
+  VerifyOtpSchema,
+} from "@omnibrain/core";
+import {
+  bootstrapUser,
+  consumeOtp,
+  createUserWithPassword,
+  findUserByEmail,
+  forWorkspace,
+  listWorkspaces,
+} from "@omnibrain/db";
 import { Hono } from "hono";
 import { getCookie } from "hono/cookie";
-import { type AppEnv, dbOf, isDev } from "../env";
+import { type AppEnv, dbOf, isDev, otpEnabled } from "../env";
 import { clientIp, issueCookie, logout, originGuard, rateLimit } from "../http";
 import { sendOtpEmail } from "../services/mail";
 import { body } from "../validate";
@@ -20,7 +35,67 @@ export const authRoutes = new Hono<AppEnv>();
 
 authRoutes.use("*", originGuard);
 
+/** Public auth capabilities for the sign-in screen. */
+authRoutes.get("/config", (c) =>
+  c.json({ password_enabled: true, otp_enabled: otpEnabled(c.env) }),
+);
+
+authRoutes.post("/signup", body(SignupSchema), async (c) => {
+  const ip = clientIp(c);
+  if (!rateLimit(`signup:${ip}`, 10, 10 * 60_000)) {
+    throw new AppError("rate_limited", "Too many sign-up attempts. Try again later.", 429);
+  }
+
+  const { email, password } = c.req.valid("json");
+  const db = dbOf(c.env);
+  const user = await createUserWithPassword(db, email, await hashPassword(password));
+  if (!user) {
+    throw new AppError(
+      "email_taken",
+      "An account with this email already exists. Sign in instead.",
+      409,
+    );
+  }
+
+  const bootstrapped = await bootstrapUser(db, email);
+  const session = await issueSession(db, user.id);
+  issueCookie(c, session.token, Math.floor(SESSION_TTL_MS / 1000));
+  await forWorkspace(db, bootstrapped.workspace.id).audit(user.id, "auth.signup", null, { ip });
+  return c.json({
+    user: { id: user.id, email: user.email, name: user.name },
+    workspace: bootstrapped.workspace,
+    expires_at: session.expiresAt,
+  });
+});
+
+authRoutes.post("/login", body(LoginSchema), async (c) => {
+  const ip = clientIp(c);
+  if (!rateLimit(`login:${ip}`, 20, 10 * 60_000)) {
+    throw new AppError("rate_limited", "Too many sign-in attempts. Try again later.", 429);
+  }
+
+  const { email, password } = c.req.valid("json");
+  const db = dbOf(c.env);
+  const user = await findUserByEmail(db, email);
+  if (!user?.password_hash || !(await verifyPassword(password, user.password_hash))) {
+    throw new AppError("unauthorized", "Email or password is incorrect.", 401);
+  }
+
+  const { workspace } = await bootstrapUser(db, email);
+  const session = await issueSession(db, user.id);
+  issueCookie(c, session.token, Math.floor(SESSION_TTL_MS / 1000));
+  await forWorkspace(db, workspace.id).audit(user.id, "auth.login", null, { ip });
+  return c.json({
+    user: { id: user.id, email: user.email, name: user.name },
+    workspace,
+    expires_at: session.expiresAt,
+  });
+});
+
 authRoutes.post("/request-otp", body(RequestOtpSchema), async (c) => {
+  if (!otpEnabled(c.env)) {
+    throw new AppError("otp_disabled", "Email code sign-in is not enabled.", 403);
+  }
   const { email } = c.req.valid("json");
   const ip = clientIp(c);
   const dev = isDev(c.env);
@@ -74,6 +149,9 @@ authRoutes.post("/request-otp", body(RequestOtpSchema), async (c) => {
 });
 
 authRoutes.post("/verify", body(VerifyOtpSchema), async (c) => {
+  if (!otpEnabled(c.env)) {
+    throw new AppError("otp_disabled", "Email code sign-in is not enabled.", 403);
+  }
   const { email, code } = c.req.valid("json");
   const ip = clientIp(c);
   if (!rateLimit(`verify:${ip}`, 20, 10 * 60_000)) {
