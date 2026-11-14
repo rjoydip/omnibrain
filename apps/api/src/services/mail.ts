@@ -4,7 +4,11 @@ import type { Env } from "../env";
 export async function sendOtpEmail(env: Env, email: string, code: string): Promise<boolean> {
   if (!env.EMAIL) return false;
 
-  const from = env.EMAIL_FROM?.trim() || "OmniBrain <no-reply@omnibrain.ai>";
+  const from = env.EMAIL_FROM?.trim();
+  if (!from) {
+    console.error("email send failed: EMAIL_FROM is not configured with a verified sender");
+    return false;
+  }
 
   try {
     await env.EMAIL.send({
@@ -23,7 +27,8 @@ export async function sendOtpEmail(env: Env, email: string, code: string): Promi
     });
     return true;
   } catch (error) {
-    console.error("email send failed", String(error));
+    const errorCode = (error as { code?: string }).code;
+    console.error("email send failed", errorCode, String(error));
     return false;
   }
 }

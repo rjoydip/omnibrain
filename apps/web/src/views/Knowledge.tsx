@@ -399,7 +399,8 @@ export function Knowledge({
         </div>
       </header>
 
-      {(status === "active" || items.length > 0) && (
+      {/* The list owns the empty state; rendering Atlas with no items duplicates it. */}
+      {items.length > 0 && (
         <Atlas
           items={items}
           sources={allSources}

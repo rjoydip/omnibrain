@@ -9,6 +9,12 @@ export const VerifyOtpSchema = z.object({
   email: EmailSchema,
   code: z.string().regex(/^\d{6}$/, "6-digit code required"),
 });
+export const PasswordSchema = z
+  .string()
+  .min(8, "Use at least 8 characters")
+  .max(128, "Password is too long");
+export const SignupSchema = z.object({ email: EmailSchema, password: PasswordSchema });
+export const LoginSchema = z.object({ email: EmailSchema, password: PasswordSchema });
 
 export const SOURCES = [
   "web",

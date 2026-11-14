@@ -31,6 +31,24 @@ export const PLANS = {
   },
 } as const;
 
+/**
+ * Auto-sync cadences (minutes) each plan may pick. Intervals are enforced
+ * server-side; the App Store only renders these options.
+ */
+export const PLAN_SYNC_INTERVALS = {
+  free: [15 * 24 * 60, 30 * 24 * 60], // 15 days, 30 days
+  pro: [6 * 60, 24 * 60], // 6 hours, daily
+  team: [0, 15, 30, 60], // manual, 15m, 30m, hourly
+} as const satisfies Record<PlanId, readonly number[]>;
+
+export function syncIntervalsFor(plan: PlanId): readonly number[] {
+  return PLAN_SYNC_INTERVALS[plan];
+}
+
+export function canSyncInterval(plan: PlanId, minutes: number): boolean {
+  return syncIntervalsFor(plan).includes(minutes);
+}
+
 export type PlanId = keyof typeof PLANS;
 export type QuotaAction = "item" | "enrichment" | "mcp" | "connection" | "seat" | "apiKey";
 

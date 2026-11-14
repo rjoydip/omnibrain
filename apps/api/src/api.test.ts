@@ -12,6 +12,7 @@ function harness() {
     AUTH_SECRET: "test-secret",
     APP_ORIGIN: ORIGIN,
     DEV_MODE: "1",
+    AUTH_OTP_ENABLED: "1",
   };
   const app = createApp();
   return { db, env, app };
@@ -110,6 +111,94 @@ describe("api", () => {
     expect(res.status).toBe(503);
     const body = (await res.json()) as { error: { code: string } };
     expect(body.error.code).toBe("email_not_configured");
+  });
+
+  test("password signup, login and duplicate rejection", async () => {
+    const { app, env, db } = harness();
+    const email = "password@example.com";
+    const password = "correct horse battery";
+
+    const signup = await app.request(
+      "/api/v1/auth/signup",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json", origin: ORIGIN },
+        body: JSON.stringify({ email, password }),
+      },
+      env,
+    );
+    expect(signup.status).toBe(200);
+    const cookie = signup.headers
+      .getSetCookie()
+      .map((value) => value.split(";")[0])
+      .join("; ");
+    expect(cookie).toContain("ob_session=");
+
+    const me = await app.request("/api/v1/auth/me", { headers: { cookie } }, env);
+    expect(me.status).toBe(200);
+
+    const stored = await db.first<{ password_hash: string }>(
+      "select password_hash from users where email = ?",
+      [email],
+    );
+    expect(stored?.password_hash).toStartWith("pbkdf2$sha256$");
+    expect(stored?.password_hash).not.toContain(password);
+
+    const duplicate = await app.request(
+      "/api/v1/auth/signup",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json", origin: ORIGIN },
+        body: JSON.stringify({ email, password }),
+      },
+      env,
+    );
+    expect(duplicate.status).toBe(409);
+
+    const wrong = await app.request(
+      "/api/v1/auth/login",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json", origin: ORIGIN },
+        body: JSON.stringify({ email, password: "wrong password" }),
+      },
+      env,
+    );
+    expect(wrong.status).toBe(401);
+
+    const loginRes = await app.request(
+      "/api/v1/auth/login",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json", origin: ORIGIN },
+        body: JSON.stringify({ email, password }),
+      },
+      env,
+    );
+    expect(loginRes.status).toBe(200);
+  });
+
+  test("email OTP is behind the AUTH_OTP_ENABLED flag", async () => {
+    const { app, env } = harness();
+    const disabled = { ...env, AUTH_OTP_ENABLED: undefined };
+
+    const config = await app.request("/api/v1/auth/config", {}, disabled);
+    expect(((await config.json()) as { otp_enabled: boolean }).otp_enabled).toBe(false);
+
+    const res = await app.request(
+      "/api/v1/auth/request-otp",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json", origin: ORIGIN },
+        body: JSON.stringify({ email: "flagged@example.com" }),
+      },
+      disabled,
+    );
+    expect(res.status).toBe(403);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe("otp_disabled");
+
+    const enabled = await app.request("/api/v1/auth/config", {}, env);
+    expect(((await enabled.json()) as { otp_enabled: boolean }).otp_enabled).toBe(true);
   });
 
   test("signup, capture, list and hybrid search", async () => {

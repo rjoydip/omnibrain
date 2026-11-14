@@ -1,7 +1,21 @@
 import { describe, expect, test } from "bun:test";
-import { checkEntitlement, EMPTY_USAGE, entitlementSummary } from "./entitlements";
+import {
+  canSyncInterval,
+  checkEntitlement,
+  EMPTY_USAGE,
+  entitlementSummary,
+  syncIntervalsFor,
+} from "./entitlements";
 
 describe("entitlements", () => {
+  test("sync cadences follow the plan", () => {
+    expect(syncIntervalsFor("free")).toEqual([21600, 43200]);
+    expect(syncIntervalsFor("pro")).toEqual([360, 1440]);
+    expect(syncIntervalsFor("team")).toEqual([0, 15, 30, 60]);
+    expect(canSyncInterval("free", 15)).toBe(false);
+    expect(canSyncInterval("pro", 360)).toBe(true);
+    expect(canSyncInterval("team", 0)).toBe(true);
+  });
   test("free plan allows items under the cap", () => {
     const e = checkEntitlement("free", { ...EMPTY_USAGE, items: 499 }, "item");
     expect(e.allowed).toBe(true);

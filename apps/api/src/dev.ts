@@ -15,6 +15,8 @@ const env: Env = {
   AUTH_SECRET: process.env.AUTH_SECRET ?? "dev-secret-change-me",
   APP_ORIGIN: process.env.APP_ORIGIN ?? "http://localhost:5173",
   DEV_MODE: "1",
+  // Local dev can fake delivery; production enables OTP via the AUTH_OTP_ENABLED variable.
+  AUTH_OTP_ENABLED: process.env.AUTH_OTP_ENABLED ?? "1",
   NOTION_CLIENT_ID: process.env.NOTION_CLIENT_ID,
   NOTION_CLIENT_SECRET: process.env.NOTION_CLIENT_SECRET,
   GH_CLIENT_ID: process.env.GH_CLIENT_ID,

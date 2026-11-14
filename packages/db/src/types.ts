@@ -3,6 +3,7 @@ export interface UserRow {
   email: string;
   name: string | null;
   created_at: number;
+  password_hash?: string | null;
 }
 
 export interface WorkspaceRow {
@@ -61,6 +62,8 @@ export interface ConnectionRow {
   scopes: string;
   secret_ciphertext: string | null;
   cursor: string | null;
+  /** 0 = manual only; otherwise the cron syncs when this many minutes have elapsed. */
+  sync_interval_minutes: number;
   last_synced_at: number | null;
   last_error: string | null;
   created_at: number;

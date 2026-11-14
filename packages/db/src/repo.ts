@@ -722,6 +722,36 @@ export async function itemsByCanonicalUrls(
 
 // ---------------------------------------------------------------- auth + users
 
+export async function findUserByEmail(db: SqlClient, email: string): Promise<UserRow | null> {
+  return db.first<UserRow>("select * from users where email = ?", [email.trim().toLowerCase()]);
+}
+
+/** Returns null when the address is already registered. */
+export async function createUserWithPassword(
+  db: SqlClient,
+  email: string,
+  passwordHash: string,
+): Promise<UserRow | null> {
+  const normalized = email.trim().toLowerCase();
+  const user: UserRow = {
+    id: newId("usr"),
+    email: normalized,
+    name: normalized.split("@")[0] ?? null,
+    created_at: Date.now(),
+    password_hash: passwordHash,
+  };
+  try {
+    await db.run(
+      "insert into users(id, email, name, created_at, password_hash) values(?,?,?,?,?)",
+      [user.id, user.email, user.name, user.created_at, passwordHash],
+    );
+  } catch (error) {
+    if (await findUserByEmail(db, normalized)) return null;
+    throw error;
+  }
+  return user;
+}
+
 export async function upsertUser(db: SqlClient, email: string): Promise<UserRow> {
   const normalized = email.trim().toLowerCase();
   const existing = await db.first<UserRow>("select * from users where email = ?", [normalized]);
@@ -921,6 +951,7 @@ export async function upsertConnection(
     scopes?: string[];
     secretCiphertext?: string | null;
     status?: ConnectionRow["status"];
+    syncIntervalMinutes?: number;
   },
 ): Promise<ConnectionRow> {
   assertWorkspaceId(ws);
@@ -931,9 +962,17 @@ export async function upsertConnection(
   const scopes = JSON.stringify(input.scopes ?? []);
   if (existing) {
     await db.run(
-      `update connections set status = ?, scopes = ?, secret_ciphertext = coalesce(?, secret_ciphertext)
+      `update connections set status = ?, scopes = ?, secret_ciphertext = coalesce(?, secret_ciphertext),
+         sync_interval_minutes = coalesce(?, sync_interval_minutes)
        where id = ? and workspace_id = ?`,
-      [input.status ?? "connected", scopes, input.secretCiphertext ?? null, existing.id, ws],
+      [
+        input.status ?? "connected",
+        scopes,
+        input.secretCiphertext ?? null,
+        input.syncIntervalMinutes ?? null,
+        existing.id,
+        ws,
+      ],
     );
     const updated = await getConnection(db, ws, existing.id);
     if (!updated) throw new Error("connection vanished");
@@ -948,13 +987,14 @@ export async function upsertConnection(
     scopes,
     secret_ciphertext: input.secretCiphertext ?? null,
     cursor: null,
+    sync_interval_minutes: input.syncIntervalMinutes ?? 0,
     last_synced_at: null,
     last_error: null,
     created_at: Date.now(),
   };
   await db.run(
-    `insert into connections(id, workspace_id, app_id, external_account_id, status, scopes, secret_ciphertext, created_at)
-     values(?,?,?,?,?,?,?,?)`,
+    `insert into connections(id, workspace_id, app_id, external_account_id, status, scopes, secret_ciphertext, sync_interval_minutes, created_at)
+     values(?,?,?,?,?,?,?,?,?)`,
     [
       row.id,
       row.workspace_id,
@@ -963,6 +1003,7 @@ export async function upsertConnection(
       row.status,
       row.scopes,
       row.secret_ciphertext,
+      row.sync_interval_minutes,
       row.created_at,
     ],
   );
@@ -980,6 +1021,7 @@ export async function updateConnection(
     lastError?: string | null;
     secretCiphertext?: string | null;
     externalAccountId?: string | null;
+    syncIntervalMinutes?: number;
   },
 ): Promise<ConnectionRow | null> {
   assertWorkspaceId(ws);
@@ -990,7 +1032,8 @@ export async function updateConnection(
       last_synced_at = coalesce(?, last_synced_at),
       last_error = ?,
       secret_ciphertext = coalesce(?, secret_ciphertext),
-      external_account_id = coalesce(?, external_account_id)
+      external_account_id = coalesce(?, external_account_id),
+      sync_interval_minutes = coalesce(?, sync_interval_minutes)
      where id = ? and workspace_id = ?`,
     [
       patch.status ?? null,
@@ -999,11 +1042,29 @@ export async function updateConnection(
       patch.lastError ?? null,
       patch.secretCiphertext ?? null,
       patch.externalAccountId ?? null,
+      patch.syncIntervalMinutes ?? null,
       id,
       ws,
     ],
   );
   return getConnection(db, ws, id);
+}
+
+/** Cron entry point: connected rows whose cadence has elapsed, across workspaces. */
+export async function listDueConnections(
+  db: SqlClient,
+  now = Date.now(),
+  limit = 5,
+): Promise<ConnectionRow[]> {
+  return db.all<ConnectionRow>(
+    `select * from connections
+     where status = 'connected'
+       and sync_interval_minutes > 0
+       and (last_synced_at is null or last_synced_at + sync_interval_minutes * 60000 <= ?)
+     order by coalesce(last_synced_at, 0)
+     limit ?`,
+    [now, limit],
+  );
 }
 
 export async function deleteConnection(db: SqlClient, ws: string, id: string): Promise<boolean> {

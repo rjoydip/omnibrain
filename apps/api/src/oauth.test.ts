@@ -13,6 +13,7 @@ function harness() {
     TOKEN_KEY: "test-key-32-characters-long!!!!!!!!",
     APP_ORIGIN: ORIGIN,
     DEV_MODE: "1",
+    AUTH_OTP_ENABLED: "1",
     NOTION_CLIENT_ID: "notion-id",
     NOTION_CLIENT_SECRET: "notion-secret",
     GH_CLIENT_ID: "gh-id",

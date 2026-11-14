@@ -40,10 +40,38 @@ Writes are limited to 120 per minute per workspace+user (`429 rate_limited`); re
 | `quota_exceeded`           | 402    | Plan entitlement exhausted                                    |
 | `email_failed`             | 502    | Email provider rejected the message                           |
 | `email_not_configured`     | 503    | `EMAIL` binding missing                                       |
+| `email_taken`              | 409    | Sign-up address already registered                            |
+| `otp_disabled`             | 403    | Email OTP requested while `AUTH_OTP_ENABLED` is off           |
 | `connector_not_configured` | 400    | OAuth client credentials missing                              |
 | `internal`                 | 500    | Unexpected failure; details are logged, not returned          |
 
 ## Auth
+
+Email + password is always available. Email OTP is behind `AUTH_OTP_ENABLED`; `GET /auth/config`
+tells the client whether to offer it.
+
+### `GET /auth/config`
+
+Returns `{ "password_enabled": true, "otp_enabled": false }`. Public.
+
+### `POST /auth/signup`
+
+```json
+{ "email": "you@example.com", "password": "at least 8 characters" }
+```
+
+Creates the user, personal workspace and session cookie. Returns `{ user, workspace, expires_at }`.
+`409 email_taken` when the address already exists. Passwords are PBKDF2-SHA256 hashes (never stored
+or logged in plaintext).
+
+### `POST /auth/login`
+
+```json
+{ "email": "you@example.com", "password": "..." }
+```
+
+Returns `{ user, workspace, expires_at }` and sets the session cookie. Wrong email or password is a
+generic `401 unauthorized`. Rate limits apply per IP.
 
 ### `POST /auth/request-otp`
 
@@ -180,12 +208,19 @@ Response:
 | GET    | `/apps/connections`                    | Safe connection rows (never tokens)          |
 | POST   | `/apps/connections`                    | `{ app_id }` → `{ authorize_url }` for OAuth |
 | POST   | `/apps/connections/:id/sync`           | Sync now (max 3 pages); returns counts       |
+| PATCH  | `/apps/connections/:id/schedule`       | `{ interval_minutes }`: 0 manual, 15+ auto   |
 | POST   | `/apps/connections/:id/pause`          | Stop syncing                                 |
 | POST   | `/apps/connections/:id/resume`         | Resume syncing                               |
 | DELETE | `/apps/connections/:id?delete_items=1` | Disconnect; optionally purge items + vectors |
 
 Install requires owner/admin. File-import apps return `bad_request` with `use_import`; use the import
 flow. OAuth apps without client credentials return `connector_not_configured`.
+
+Connection rows include `sync_interval_minutes`. `0` disables automatic sync; otherwise a cron tick
+every 15 minutes syncs connected rows whose interval has elapsed (one page per run). Schedules are
+editable per connection and plan-scoped: Free 15/30 days, Pro 6 hours/daily, Team manual/15m/30m/
+hourly. `PATCH .../schedule` returns `403` with the allowed set otherwise. New installs get the
+catalog cadence when the plan allows it, else the plan's first cadence.
 
 OAuth callback (public, state-bound): `GET /oauth/:app/callback`.
 

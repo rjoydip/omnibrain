@@ -35,22 +35,23 @@ bun run check         # format check + typecheck + lint + tests + build
 
 ## Stack
 
-| Layer           | Choice                                                              |
-| --------------- | ------------------------------------------------------------------- |
-| Runtime/tooling | Bun workspaces, `bun test`, `bun fmt`, `oxlint`                     |
-| API             | Hono on Cloudflare Workers (`apps/api`)                             |
-| Web             | React 19 + Vite 8 + Tailwind v4 (`apps/web`)                        |
-| Data            | D1-compatible SQL + FTS5, R2, Vectorize                             |
-| AI              | Workers AI `bge-m3` embeddings + instruct model                     |
-| Infra           | Alchemy (`alchemy.run.ts`), no `wrangler.toml`                      |
-| Auth            | Email OTP (Cloudflare Email Service) + hashed opaque session tokens |
+| Layer           | Choice                                                      |
+| --------------- | ----------------------------------------------------------- |
+| Runtime/tooling | Bun workspaces, `bun test`, `bun fmt`, `oxlint`             |
+| API             | Hono on Cloudflare Workers (`apps/api`)                     |
+| Web             | React 19 + Vite 8 + Tailwind v4 (`apps/web`)                |
+| Data            | D1-compatible SQL + FTS5, R2, Vectorize                     |
+| AI              | Workers AI `bge-m3` embeddings + instruct model             |
+| Infra           | Alchemy (`alchemy.run.ts`), no `wrangler.toml`              |
+| Auth            | Email + password (PBKDF2); optional email OTP behind a flag |
 
 Production compute is workerd. Bun is the toolchain, not the deployed runtime.
 
 ## What works now
 
-- Email OTP signup/login, workspaces, roles, HttpOnly sessions, CSRF double-submit + origin checks,
-  security headers, and rate limits (including a durable OTP resend cooldown).
+- Email + password signup/login (optional email OTP via `AUTH_OTP_ENABLED`), workspaces, roles,
+  HttpOnly sessions, CSRF double-submit + origin checks, security headers, and rate limits
+  (including a durable OTP resend cooldown).
 - Items CRUD, trash + 30-day purge, per-tenant scoping enforced by `forWorkspace()`.
 - Browser bookmark HTML parser (runs client-side in the import UI).
 - Batch import with canonical-URL dedupe and idempotent re-import.
@@ -81,12 +82,12 @@ Honest list, matching PLAN §19:
 ## Deploy (Alchemy)
 
 ```bash
-cp .env.example .env            # fill AUTH_SECRET and APP_ORIGIN
+cp .env.example .env            # fill AUTH_SECRET and Cloudflare credentials
 bun alchemy profile edit --add Cloudflare
-AUTH_SECRET=... APP_ORIGIN=https://app.example.com bun alchemy deploy --stage prod
+bun alchemy deploy --stage prod
 ```
 
-`alchemy.run.ts` provisions D1 (with migrations), R2, the Vectorize index (1024 dims, cosine), the API Worker, and the Vite site. The web bundle receives `VITE_API_URL` at build time. Cross-site cookies use `SameSite=None` over HTTPS; set `APP_ORIGIN` to the web origin.
+`alchemy.run.ts` provisions D1 (with migrations), R2, the Vectorize index (1024 dims, cosine), the API Worker, and the Vite site. The web bundle receives `VITE_API_URL` at build time. Cross-site cookies use `SameSite=None` over HTTPS; `APP_ORIGIN` is the web origin, which CI derives from the deployed site URL on each push.
 
 Connector OAuth apps need these redirect URIs:
 
@@ -105,7 +106,7 @@ apps/api/src/
 packages/
   core/             schemas, errors, ids/hashing, entitlements
   db/               SQL migration, D1/SQLite client, tenant-scoped repository
-  auth/             OTP + sessions
+  auth/             passwords + OTP + sessions
   ai/               chunking, prompts, embeddings, answer synthesis
   search/           canonicalize, FTS query, RRF, recency/diversity
   connectors/       manifests, bookmark parser, OAuth helpers, adapters

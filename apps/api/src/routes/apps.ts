@@ -2,14 +2,18 @@ import { APP_CATALOG, getApp, pkceChallenge } from "@omnibrain/connectors";
 import {
   AppError,
   ConnectionCreateSchema,
+  PLANS,
+  canSyncInterval,
   checkEntitlement,
   type PlanId,
   quotaExceeded,
   randomToken,
+  syncIntervalsFor,
 } from "@omnibrain/core";
 import {
   deleteProviderCredential,
   getCached,
+  getWorkspace,
   setCached,
   upsertProviderCredential,
 } from "@omnibrain/db";
@@ -36,11 +40,26 @@ interface PendingOAuth {
   redirectUri: string;
 }
 
+/** Seed a new connection from the catalog's default cron (`*\/15 * * * *` → 15). */
+function defaultInterval(appId: string): number {
+  const match = getApp(appId)?.schedule?.match(/^\*\/(\d+) \* \* \* \*$/);
+  return match?.[1] ? Number(match[1]) : 0;
+}
+
+/** Clamp the catalog default to a cadence the plan actually allows. */
+function planDefaultInterval(plan: PlanId, appId: string): number {
+  const allowed = syncIntervalsFor(plan);
+  const candidate = defaultInterval(appId);
+  return allowed.includes(candidate) ? candidate : (allowed[0] ?? 0);
+}
+
 export const appRoutes = new Hono<AppEnv>();
 
 appRoutes.get("/", async (c) => {
   const repo = repoOf(c.env, c.get("workspaceId"));
   const connections = await repo.listConnections();
+  const plan = c.get("workspace").plan as PlanId;
+  const intervals = syncIntervalsFor(plan);
   const byApp = new Map(connections.map((conn) => [conn.app_id, conn]));
   const apps = await Promise.all(
     APP_CATALOG.map(async (app) => {
@@ -60,12 +79,16 @@ appRoutes.get("/", async (c) => {
               last_synced_at: conn.last_synced_at,
               last_error: conn.last_error,
               scopes: conn.scopes,
+              // Downgrades can leave an out-of-plan cadence stored; show a valid one.
+              sync_interval_minutes: intervals.includes(conn.sync_interval_minutes)
+                ? conn.sync_interval_minutes
+                : (intervals[0] ?? 0),
             }
           : null,
       };
     }),
   );
-  return c.json({ apps });
+  return c.json({ apps, sync_intervals: intervals });
 });
 
 const CredentialsSchema = z.object({
@@ -161,6 +184,7 @@ appRoutes.post("/connections", body(ConnectSchema), async (c) => {
       scopes: app.scopes,
       secretCiphertext: ciphertext,
       status: "connected",
+      syncIntervalMinutes: planDefaultInterval(c.get("workspace").plan as PlanId, app.id),
     });
     await repo.audit(c.get("session").user_id, "connection.install", connection.id, {
       app: app.id,
@@ -213,6 +237,41 @@ appRoutes.post("/connections/:id/sync", async (c) => {
   } catch (error) {
     throw new AppError("bad_request", `Sync failed: ${String(error).slice(0, 200)}`, 502);
   }
+});
+
+const ScheduleSchema = z.object({
+  interval_minutes: z
+    .number()
+    .int()
+    .min(0)
+    .max(10_080) // one week
+    .refine((value) => value === 0 || value >= 15, "Auto-sync runs at most every 15 minutes"),
+});
+
+appRoutes.patch("/connections/:id/schedule", body(ScheduleSchema), async (c) => {
+  requireRole(c, ["owner", "admin"]);
+  const repo = repoOf(c.env, c.get("workspaceId"));
+  const connection = await repo.getConnection(c.req.param("id"));
+  if (!connection) throw new AppError("not_found", "Connection not found", 404);
+
+  const { interval_minutes } = c.req.valid("json");
+  const plan = c.get("workspace").plan as PlanId;
+  if (!canSyncInterval(plan, interval_minutes)) {
+    const options = syncIntervalsFor(plan)
+      .map((minutes) => (minutes === 0 ? "manual" : `${minutes}m`))
+      .join(", ");
+    throw new AppError(
+      "forbidden",
+      `${PLANS[plan].name} plan allows these sync schedules: ${options}.`,
+      403,
+      { sync_intervals: syncIntervalsFor(plan) },
+    );
+  }
+  await repo.updateConnection(connection.id, { syncIntervalMinutes: interval_minutes });
+  await repo.audit(c.get("session").user_id, "connection.schedule", connection.id, {
+    interval_minutes,
+  });
+  return c.json({ ok: true, sync_interval_minutes: interval_minutes });
 });
 
 appRoutes.post("/connections/:id/pause", async (c) => {
@@ -289,12 +348,14 @@ oauthCallbackRoutes.get("/:app/callback", async (c) => {
     const secret = c.env.TOKEN_KEY ?? c.env.AUTH_SECRET;
     const ciphertext = await encryptSecret(secret, JSON.stringify(tokens));
     const repo = repoOf(c.env, pending.workspaceId);
+    const workspace = await getWorkspace(dbOf(c.env), pending.workspaceId);
     const connection = await repo.upsertConnection({
       appId,
       externalAccountId: externalId,
       scopes: tokens.scope ? tokens.scope.split(" ") : (getApp(appId)?.scopes ?? []),
       secretCiphertext: ciphertext,
       status: "connected",
+      syncIntervalMinutes: planDefaultInterval((workspace?.plan ?? "free") as PlanId, appId),
     });
     await repo.audit(pending.userId, "connection.install", connection.id, { app: appId });
     // First sync runs here so the App Store opens with data already in place.

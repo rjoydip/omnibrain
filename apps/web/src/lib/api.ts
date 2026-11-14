@@ -208,6 +208,7 @@ export interface AppInfo {
     last_synced_at: number | null;
     last_error: string | null;
     scopes: string;
+    sync_interval_minutes: number;
   } | null;
 }
 
@@ -246,6 +247,17 @@ export interface ImportRow {
 }
 
 export const api = {
+  authConfig: () => request<{ password_enabled: boolean; otp_enabled: boolean }>("/auth/config"),
+  signup: (email: string, password: string) =>
+    request<{ user: User; workspace: Workspace }>("/auth/signup", {
+      method: "POST",
+      body: { email, password },
+    }),
+  login: (email: string, password: string) =>
+    request<{ user: User; workspace: Workspace }>("/auth/login", {
+      method: "POST",
+      body: { email, password },
+    }),
   requestOtp: (email: string) =>
     request<{
       sent: boolean;
@@ -341,7 +353,7 @@ export const api = {
     }),
   workspaces: () => request<{ workspaces: Workspace[] }>("/workspaces"),
 
-  apps: () => request<{ apps: AppInfo[] }>("/apps"),
+  apps: () => request<{ apps: AppInfo[]; sync_intervals: number[] }>("/apps"),
   connect: (app_id: string, token?: string) =>
     request<{ authorize_url?: string; state?: string; connection_id?: string }>(
       "/apps/connections",
@@ -358,6 +370,11 @@ export const api = {
       duplicateCount: number;
       duplicates: Array<{ title: string; url: string | null }>;
     }>(`/apps/connections/${id}/sync`, { method: "POST" }),
+  setConnectionSchedule: (id: string, interval_minutes: number) =>
+    request<{ ok: boolean; sync_interval_minutes: number }>(`/apps/connections/${id}/schedule`, {
+      method: "PATCH",
+      body: { interval_minutes },
+    }),
   pauseConnection: (id: string) =>
     request<{ ok: boolean }>(`/apps/connections/${id}/pause`, { method: "POST" }),
   resumeConnection: (id: string) =>

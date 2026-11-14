@@ -179,6 +179,15 @@ export async function fetchExternalAccountId(
     const body = (await res.json()) as { login?: string };
     return body.login ?? "primary";
   }
+  if (appId === "notion" && !tokenBody.bot_id && !tokenBody.workspace_id) {
+    // Personal access token (internal integration): verify before storing it.
+    const res = await fetchImpl("https://api.notion.com/v1/users/me", {
+      headers: { authorization: `Bearer ${token}`, "notion-version": "2022-06-28" },
+    });
+    if (!res.ok) throw new Error(`notion token failed (${res.status})`);
+    const body = (await res.json()) as { id?: string };
+    return body.id ?? "primary";
+  }
   return tokenBody.bot_id ?? tokenBody.workspace_id ?? "primary";
 }
 

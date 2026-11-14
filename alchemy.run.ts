@@ -17,7 +17,8 @@ export default Alchemy.Stack(
     if (!authSecret) {
       throw new Error("AUTH_SECRET is required to deploy (32+ random characters)");
     }
-    const appOrigin = process.env.APP_ORIGIN ?? "http://localhost:5173";
+    // Empty string is what an unset GitHub Actions variable produces; treat it as unset.
+    const appOrigin = process.env.APP_ORIGIN || "http://localhost:5173";
 
     const db = yield* Cloudflare.D1.Database("Db", {
       migrations: "./packages/db/migrations",
@@ -30,12 +31,17 @@ export default Alchemy.Stack(
     const email = yield* Cloudflare.Email.SendEmail("Email");
 
     const api = yield* Cloudflare.Worker("Api", {
+      name: "omnibrain-api",
       main: "./apps/api/src/worker.ts",
+      // Due connections are picked up from their stored interval; 15m is the floor.
+      crons: ["*/15 * * * *"],
       env: {
         DB: db,
         BLOBS: blobs,
         VECTORS: vectors,
         AUTH_SECRET: authSecret,
+        // Off by default: email OTP needs a domain onboarded to Cloudflare Email Service.
+        AUTH_OTP_ENABLED: process.env.AUTH_OTP_ENABLED || "",
         TOKEN_KEY: process.env.TOKEN_KEY ?? authSecret,
         APP_ORIGIN: appOrigin,
         NOTION_CLIENT_ID: process.env.NOTION_CLIENT_ID ?? "",
@@ -43,11 +49,13 @@ export default Alchemy.Stack(
         GH_CLIENT_ID: process.env.GH_CLIENT_ID ?? "",
         GH_CLIENT_SECRET: process.env.GH_CLIENT_SECRET ?? "",
         EMAIL: email,
-        EMAIL_FROM: process.env.EMAIL_FROM ?? "OmniBrain <no-reply@omnibrain.ai>",
+        // Must be an address on a domain onboarded to Cloudflare Email Service.
+        EMAIL_FROM: process.env.EMAIL_FROM || "",
       },
     });
 
     const web = yield* Cloudflare.Website.Vite("Web", {
+      name: "omnibrain",
       rootDir: "./apps/web",
       env: {
         VITE_API_URL: api.url.as<string>(),
